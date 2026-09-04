@@ -1,0 +1,29 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+
+# Local sensitive environment files
+.env
+*.pem
+*.key
+
+# Local database and shallow clone cache
+data/duckdb/*.duckdb
+data/duckdb/*.duckdb.wal
+data/duckdb/*.duckdb.tmp
+data/repos/*
+!data/repos/.gitkeep
+!data/duckdb/.gitkeep
+
+# HuggingFace & Tokenizer cache
+.cache/
+
+# Testing & logs
+.pytest_cache/
+*.log
