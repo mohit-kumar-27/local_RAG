@@ -700,16 +700,26 @@ def AssistantMessageBubble(msg: ChatMessageRecord, chat_id: str, cls: Optional[s
         Div(
             cls="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm min-w-0 space-y-3 relative",
         )(
-            Div(cls="absolute top-3 right-3 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity")(
+            Div(cls="absolute top-3 right-3 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity flex items-center gap-1")(
+                Button(
+                    hx_get=f"/api/chats/{chat_id}/assistant-messages/{msg.id}/edit-form",
+                    hx_target=f"#assistant-bubble-{msg.id}",
+                    hx_swap="outerHTML",
+                    title="Edit AI response",
+                    cls="px-2 py-1 bg-base-200 hover:bg-base-300 border border-base-300 rounded-lg text-slate-600 dark:text-slate-300 font-medium text-[11px] shadow-2xs hover:shadow-xs transition-all cursor-pointer flex items-center gap-1",
+                )(
+                    Span("✏️", cls="text-[10px]"),
+                    Span("Edit"),
+                ),
                 Button(
                     hx_delete=f"/api/chats/{chat_id}/messages/{msg.id}",
                     hx_confirm="Are you sure you want to delete this AI response?",
                     hx_target=f"#assistant-bubble-{msg.id}",
                     hx_swap="outerHTML",
                     title="Delete response",
-                    cls="p-1 text-slate-400 hover:text-rose-600 rounded-md hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-all cursor-pointer",
+                    cls="px-1.5 py-1 bg-base-200 hover:bg-rose-100 dark:hover:bg-rose-950/60 border border-base-300 rounded-lg text-slate-500 hover:text-rose-700 font-medium text-[11px] shadow-2xs hover:shadow-xs transition-all cursor-pointer flex items-center",
                 )(
-                    Span("🗑️", cls="text-xs")
+                    Span("🗑️", cls="text-[10px]"),
                 ),
             ),
             Div(cls="prose prose-sm max-w-none text-slate-800 dark:text-slate-100 leading-relaxed font-normal")(
@@ -784,6 +794,62 @@ def EditMessageForm(chat_id: str, message_id: str, current_content: str, cls: Op
                 ),
             ),
         )
+    )
+
+
+def EditAssistantMessageForm(chat_id: str, message_id: str, current_content: str, cls: Optional[str] = None, **kwargs):
+    """Inline edit form for modifying an assistant response directly."""
+    base_cls = "group flex items-start space-x-3 w-full my-2"
+    if cls:
+        base_cls = f"{base_cls} {cls}"
+
+    return Div(
+        id=kwargs.pop("id", f"assistant-bubble-{message_id}"),
+        cls=base_cls,
+        **kwargs,
+    )(
+        Div(
+            cls="w-8 h-8 rounded-full bg-slate-800 dark:bg-slate-700 text-white flex-shrink-0 flex items-center justify-center font-black font-mono text-[11px] shadow-sm mt-0.5"
+        )("AI"),
+        Div(
+            cls="flex-1 bg-white dark:bg-slate-900 border-2 border-primary/50 rounded-2xl p-5 shadow-md min-w-0 space-y-3"
+        )(
+            Div(cls="flex items-center justify-between text-xs font-semibold text-slate-800 dark:text-slate-200 border-b border-slate-100 dark:border-slate-800 pb-2")(
+                Span(cls="flex items-center gap-1.5")(
+                    Span("✏️"),
+                    Span("Edit AI Response (Markdown)"),
+                ),
+                Span(cls="text-[10px] text-slate-500 dark:text-slate-400 font-mono")(
+                    "Citations & context are preserved"
+                ),
+            ),
+            Form(
+                hx_post=f"/api/chats/{chat_id}/assistant-messages/{message_id}/edit",
+                hx_target=f"#assistant-bubble-{message_id}",
+                hx_swap="outerHTML",
+                cls="space-y-3",
+            )(
+                Textarea(
+                    name="content",
+                    rows=8,
+                    required=True,
+                    cls="uk-textarea w-full text-xs font-mono rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 p-3.5 focus:border-primary focus:ring-1 focus:ring-primary/30 text-slate-900 dark:text-slate-100 resize-y leading-relaxed",
+                )(current_content.strip()),
+                Div(cls="flex items-center justify-end gap-2 pt-1")(
+                    Button(
+                        type="button",
+                        hx_get=f"/api/chats/{chat_id}/assistant-messages/{message_id}/cancel-edit",
+                        hx_target=f"#assistant-bubble-{message_id}",
+                        hx_swap="outerHTML",
+                        cls="uk-button uk-button-default uk-button-xs rounded-lg cursor-pointer",
+                    )("Cancel"),
+                    Button(
+                        type="submit",
+                        cls="uk-button uk-button-primary uk-button-xs rounded-lg cursor-pointer shadow-sm",
+                    )("Save Changes"),
+                ),
+            ),
+        ),
     )
 
 

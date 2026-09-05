@@ -212,6 +212,63 @@ class TestChatHistory(unittest.TestCase):
         self.assertIn('id="chat-main-area"', r_htmx_chat.text)
         self.assertIn("overflow-y-scroll", r_htmx_chat.text)
 
+    def test_assistant_message_editing(self):
+        from starlette.testclient import TestClient
+        from app.main import app, store
+
+        client = TestClient(app)
+
+        # 1. Setup chat with user and assistant messages
+        chat = store.create_chat("chat-edit-test", "Edit Assistant Test")
+        store.add_chat_message("user-1", chat.id, "user", "What is FastAPI?")
+        citations = [
+            {"file_path": "app/main.py", "doc_type": "code", "score": 0.88, "content": "app = FastHTML()"}
+        ]
+        store.add_chat_message("asst-1", chat.id, "assistant", "FastAPI is a Python web framework.", citations=citations)
+
+        # 2. Check AssistantMessageBubble renders the Edit button
+        resp_view = client.get(f"/api/chats/{chat.id}", headers={"HX-Request": "true"})
+        self.assertEqual(resp_view.status_code, 200)
+        self.assertIn(f'id="assistant-bubble-asst-1"', resp_view.text)
+        self.assertIn(f'/api/chats/{chat.id}/assistant-messages/asst-1/edit-form', resp_view.text)
+        self.assertIn('Edit', resp_view.text)
+
+        # 3. GET /edit-form returns the inline edit form
+        resp_form = client.get(f"/api/chats/{chat.id}/assistant-messages/asst-1/edit-form", headers={"HX-Request": "true"})
+        self.assertEqual(resp_form.status_code, 200)
+        self.assertIn(f'id="assistant-bubble-asst-1"', resp_form.text)
+        self.assertIn('name="content"', resp_form.text)
+        self.assertIn("FastAPI is a Python web framework.", resp_form.text)
+        self.assertIn(f'/api/chats/{chat.id}/assistant-messages/asst-1/edit', resp_form.text)
+        self.assertIn(f'/api/chats/{chat.id}/assistant-messages/asst-1/cancel-edit', resp_form.text)
+
+        # 4. GET /cancel-edit restores original bubble
+        resp_cancel = client.get(f"/api/chats/{chat.id}/assistant-messages/asst-1/cancel-edit", headers={"HX-Request": "true"})
+        self.assertEqual(resp_cancel.status_code, 200)
+        self.assertIn(f'id="assistant-bubble-asst-1"', resp_cancel.text)
+        self.assertIn("FastAPI is a Python web framework.", resp_cancel.text)
+        self.assertNotIn('name="content"', resp_cancel.text)
+
+        # 5. POST /edit saves modified content to DuckDB and re-renders bubble
+        new_answer = "FastAPI is a high-performance Python framework built on Starlette and Pydantic."
+        resp_save = client.post(
+            f"/api/chats/{chat.id}/assistant-messages/asst-1/edit",
+            data={"content": new_answer},
+            headers={"HX-Request": "true"},
+        )
+        self.assertEqual(resp_save.status_code, 200)
+        self.assertIn(f'id="assistant-bubble-asst-1"', resp_save.text)
+        self.assertIn("high-performance Python framework", resp_save.text)
+
+        # 6. Verify DuckDB reflects the edited content and citations remain intact
+        updated_msg = store.get_message("asst-1")
+        self.assertIsNotNone(updated_msg)
+        self.assertEqual(updated_msg.content, new_answer)
+        self.assertIsNotNone(updated_msg.citations)
+        self.assertEqual(len(updated_msg.citations), 1)
+        self.assertEqual(updated_msg.citations[0]["file_path"], "app/main.py")
+
 
 if __name__ == "__main__":
     unittest.main()
+

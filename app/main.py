@@ -24,8 +24,8 @@ from starlette.responses import StreamingResponse
 import config
 from app.background import create_job, execute_ingestion, get_job
 from app.ui_components import (
-    AppHeader, ChatMainArea, ChatSidebar, ChatTab, CitationDrawer, CollectionStatsCard,
-    EditMessageForm, IngestProgressSSEComponent, IngestProgressUpdateCard, IngestionTab,
+    AppHeader, AssistantMessageBubble, ChatMainArea, ChatSidebar, ChatTab, CitationDrawer, CollectionStatsCard,
+    EditAssistantMessageForm, EditMessageForm, IngestProgressSSEComponent, IngestProgressUpdateCard, IngestionTab,
     TabNavigation, UserMessageBubble, deserialize_citations, format_inline_citations, serialize_citations
 )
 from ingestion.ado_loader import AdoBoardLoader, AdoRepoLoader
@@ -371,19 +371,20 @@ async def post_edit_message(
     store.delete_messages_after(chat_id, message_id)
 
     stream_id = str(uuid.uuid4())[:8]
+    assistant_msg_id = str(uuid.uuid4())[:8]
     encoded_query = urllib.parse.quote(new_prompt)
     encoded_doc_filter = urllib.parse.quote(doc_type_filter or "all")
     encoded_sprint = urllib.parse.quote(sprint_filter.strip() if sprint_filter else "")
 
-    stream_url = f"/api/chat/stream/{stream_id}?chat_id={chat_id}&q={encoded_query}&doc_type={encoded_doc_filter}&sprint={encoded_sprint}"
+    stream_url = f"/api/chat/stream/{stream_id}?chat_id={chat_id}&assistant_msg_id={assistant_msg_id}&q={encoded_query}&doc_type={encoded_doc_filter}&sprint={encoded_sprint}"
     assistant_placeholder = Div(
-        id=f"stream-container-{stream_id}",
+        id=f"assistant-bubble-{assistant_msg_id}",
         hx_ext="sse",
         sse_connect=stream_url,
         sse_swap="message",
         sse_close="close",
         hx_target=f"#response-box-{stream_id}",
-        cls="flex items-start space-x-3 w-full my-2",
+        cls="group flex items-start space-x-3 w-full my-2",
     )(
         Div(cls="w-8 h-8 rounded-full bg-slate-800 dark:bg-slate-700 text-white flex-shrink-0 flex items-center justify-center font-black font-mono text-[11px] shadow-sm mt-0.5")("AI"),
         Div(
@@ -508,6 +509,36 @@ def delete_message(chat_id: str, message_id: str):
     return ""
 
 
+@rt("/api/chats/{chat_id}/assistant-messages/{message_id}/edit-form", methods=["GET"])
+def get_edit_assistant_message_form(chat_id: str, message_id: str):
+    """Returns inline edit form replacing the assistant message bubble."""
+    msg = store.get_message(message_id)
+    if not msg:
+        return Div("Message not found", cls="text-xs text-rose-500")
+    return EditAssistantMessageForm(chat_id=chat_id, message_id=message_id, current_content=msg.content)
+
+
+@rt("/api/chats/{chat_id}/assistant-messages/{message_id}/cancel-edit", methods=["GET"])
+def get_cancel_edit_assistant(chat_id: str, message_id: str):
+    """Cancels assistant editing and restores original assistant bubble."""
+    msg = store.get_message(message_id)
+    if not msg:
+        return Div()
+    return AssistantMessageBubble(msg=msg, chat_id=chat_id)
+
+
+@rt("/api/chats/{chat_id}/assistant-messages/{message_id}/edit", methods=["POST"])
+def post_edit_assistant_message(chat_id: str, message_id: str, content: str):
+    """Saves edited content to DuckDB and re-renders assistant message bubble."""
+    clean_content = content.strip()
+    store.update_message_content(message_id, clean_content)
+    store.touch_chat(chat_id)
+    msg = store.get_message(message_id)
+    if not msg:
+        return Div("Message not found", cls="text-xs text-rose-500")
+    return AssistantMessageBubble(msg=msg, chat_id=chat_id)
+
+
 @rt("/api/chat", methods=["POST"])
 async def post_chat(
     query: str,
@@ -535,24 +566,25 @@ async def post_chat(
     )
 
     stream_id = str(uuid.uuid4())[:8]
+    assistant_msg_id = str(uuid.uuid4())[:8]
     encoded_query = urllib.parse.quote(clean_query)
     encoded_doc_filter = urllib.parse.quote(doc_type_filter or "all")
     encoded_sprint = urllib.parse.quote(sprint_filter.strip() if sprint_filter else "")
 
-    stream_url = f"/api/chat/stream/{stream_id}?chat_id={chat_id}&q={encoded_query}&doc_type={encoded_doc_filter}&sprint={encoded_sprint}"
+    stream_url = f"/api/chat/stream/{stream_id}?chat_id={chat_id}&assistant_msg_id={assistant_msg_id}&q={encoded_query}&doc_type={encoded_doc_filter}&sprint={encoded_sprint}"
     assistant_placeholder = Div(
-        id=f"stream-container-{stream_id}",
+        id=f"assistant-bubble-{assistant_msg_id}",
         hx_ext="sse",
         sse_connect=stream_url,
         sse_swap="message",
         sse_close="close",
         hx_target=f"#response-box-{stream_id}",
-        cls="flex items-start space-x-3 w-full my-2",
+        cls="group flex items-start space-x-3 w-full my-2",
     )(
         Div(cls="w-8 h-8 rounded-full bg-slate-800 dark:bg-slate-700 text-white flex-shrink-0 flex items-center justify-center font-black font-mono text-[11px] shadow-sm mt-0.5")("AI"),
         Div(
             id=f"response-box-{stream_id}",
-            cls="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm min-w-0 space-y-3",
+            cls="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm min-w-0 space-y-3 relative",
         )(
             Div(cls="flex items-center space-x-2.5 text-xs text-slate-600 dark:text-slate-400 font-medium")(
                 Div(cls="animate-spin h-4 w-4 border-2 border-blue-600 border-t-transparent rounded-full"),
@@ -578,6 +610,7 @@ async def get_chat_stream(
     stream_id: str,
     q: str,
     chat_id: Optional[str] = None,
+    assistant_msg_id: Optional[str] = None,
     doc_type: Optional[str] = "all",
     sprint: Optional[str] = None,
 ):
@@ -589,6 +622,7 @@ async def get_chat_stream(
     query = urllib.parse.unquote(q)
     doc_filter = urllib.parse.unquote(doc_type) if doc_type != "all" else None
     sprint_f = urllib.parse.unquote(sprint) if sprint else None
+    asst_id = assistant_msg_id or str(uuid.uuid4())[:8]
 
     async def event_generator():
         try:
@@ -615,10 +649,9 @@ async def get_chat_stream(
 
             # Persist assistant reply with serialized citations to DuckDB
             serialized_citations = serialize_citations(retrieved_docs)
-            assistant_msg_id = str(uuid.uuid4())[:8]
             if chat_id:
                 store.add_chat_message(
-                    message_id=assistant_msg_id,
+                    message_id=asst_id,
                     chat_id=chat_id,
                     role="assistant",
                     content=accumulated_response,
@@ -630,16 +663,26 @@ async def get_chat_stream(
             citations_component = CitationDrawer(retrieved_docs)
 
             final_element = Div(
-                Div(cls="absolute top-3 right-3 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity")(
+                Div(cls="absolute top-3 right-3 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity flex items-center gap-1")(
                     Button(
-                        hx_delete=f"/api/chats/{chat_id}/messages/{assistant_msg_id}",
+                        hx_get=f"/api/chats/{chat_id}/assistant-messages/{asst_id}/edit-form",
+                        hx_target=f"#assistant-bubble-{asst_id}",
+                        hx_swap="outerHTML",
+                        title="Edit AI response",
+                        cls="px-2 py-1 bg-base-200 hover:bg-base-300 border border-base-300 rounded-lg text-slate-600 dark:text-slate-300 font-medium text-[11px] shadow-2xs hover:shadow-xs transition-all cursor-pointer flex items-center gap-1",
+                    )(
+                        Span("✏️", cls="text-[10px]"),
+                        Span("Edit"),
+                    ),
+                    Button(
+                        hx_delete=f"/api/chats/{chat_id}/messages/{asst_id}",
                         hx_confirm="Are you sure you want to delete this AI response?",
-                        hx_target=f"#response-box-{stream_id}",
+                        hx_target=f"#assistant-bubble-{asst_id}",
                         hx_swap="outerHTML",
                         title="Delete response",
-                        cls="p-1 text-slate-400 hover:text-rose-600 rounded-md hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-all cursor-pointer",
+                        cls="px-1.5 py-1 bg-base-200 hover:bg-rose-100 dark:hover:bg-rose-950/60 border border-base-300 rounded-lg text-slate-500 hover:text-rose-700 font-medium text-[11px] shadow-2xs hover:shadow-xs transition-all cursor-pointer flex items-center",
                     )(
-                        Span("🗑️", cls="text-xs")
+                        Span("🗑️", cls="text-[10px]"),
                     ),
                 ) if chat_id else None,
                 Div(cls="prose prose-sm max-w-none text-slate-800 dark:text-slate-100 leading-relaxed font-normal")(
