@@ -5,7 +5,9 @@ and real-time SSE token/progress streaming into a single process.
 """
 
 import asyncio
+import html
 import os
+import re
 import urllib.parse
 import uuid
 from typing import Optional
@@ -246,7 +248,24 @@ async def get_ingest_stream(job_id: str):
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
-@rt("/api/chat")
+def format_inline_citations(html_text: str) -> str:
+    """
+    Transforms [Source: ...] inline citations in LLM responses into crisp,
+    readable, high-contrast badges that are clearly visible in light & dark modes.
+    """
+    def _replacer(match):
+        raw_label = match.group(1).strip()
+        escaped_label = html.escape(raw_label)
+        return (
+            f'<span class="inline-flex items-center gap-1 px-2 py-0.5 mx-1 my-0.5 rounded-md text-[11px] font-mono font-bold '
+            f'bg-blue-100 text-blue-900 border border-blue-300 dark:bg-blue-950/80 dark:text-blue-200 dark:border-blue-700 '
+            f'shadow-2xs">📌 {escaped_label}</span>'
+        )
+
+    return re.sub(r'\[Source:\s*([^\]]+)\]', _replacer, html_text)
+
+
+@rt("/api/chat", methods=["POST"])
 async def post_chat(
     query: str,
     doc_type_filter: Optional[str] = "all",
@@ -264,10 +283,10 @@ async def post_chat(
     # User message element - sleek, compact, formatted without excessive vertical height
     user_bubble = Div(cls="flex items-start justify-end gap-2.5 w-full my-1.5")(
         Div(
-            cls="bg-primary text-primary-content rounded-2xl rounded-tr-xs px-4 py-2.5 shadow-sm max-w-xl text-sm leading-relaxed whitespace-pre-wrap break-words font-normal"
+            cls="bg-blue-600 text-white rounded-2xl rounded-tr-xs px-4 py-2.5 shadow-sm max-w-xl text-sm leading-relaxed whitespace-pre-wrap break-words font-normal"
         )(query.strip()),
         Div(
-            cls="w-7 h-7 rounded-full bg-primary/20 text-primary border border-primary/30 flex-shrink-0 flex items-center justify-center font-bold text-[10px] shadow-sm mt-0.5"
+            cls="w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 flex-shrink-0 flex items-center justify-center font-bold text-[10px] shadow-sm mt-0.5"
         )("YOU"),
     )
 
@@ -282,13 +301,13 @@ async def post_chat(
         hx_target=f"#response-box-{stream_id}",
         cls="flex items-start space-x-3 w-full",
     )(
-        Div(cls="w-9 h-9 rounded-full bg-secondary text-secondary-content flex-shrink-0 flex items-center justify-center font-bold text-xs shadow-sm")("AI"),
+        Div(cls="w-8 h-8 rounded-full bg-slate-800 dark:bg-slate-700 text-white flex-shrink-0 flex items-center justify-center font-black font-mono text-[11px] shadow-sm mt-0.5")("AI"),
         Div(
             id=f"response-box-{stream_id}",
-            cls="flex-1 bg-base-100 border border-base-300 rounded-2xl p-5 shadow-sm min-w-0 space-y-3",
+            cls="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm min-w-0 space-y-3",
         )(
-            Div(cls="flex items-center space-x-2 text-xs text-base-content/70")(
-                Div(cls="animate-spin h-4 w-4 border-2 border-secondary border-t-transparent rounded-full"),
+            Div(cls="flex items-center space-x-2.5 text-xs text-slate-600 dark:text-slate-400 font-medium")(
+                Div(cls="animate-spin h-4 w-4 border-2 border-blue-600 border-t-transparent rounded-full"),
                 Span("Searching local knowledge base & generating grounded response..."),
             )
         ),
@@ -326,24 +345,26 @@ async def get_chat_stream(
             async for token in token_stream:
                 accumulated_response += token
 
-                # Parse markdown to HTML
+                # Parse markdown to HTML and style inline citations
                 html_body = mistletoe.markdown(accumulated_response)
+                formatted_body = format_inline_citations(html_body)
 
                 streaming_element = Div(
-                    Div(cls="prose prose-sm max-w-none text-base-content leading-relaxed")(
-                        NotStr(html_body),
-                        Span(cls="inline-block w-2 h-4 ml-1 bg-secondary animate-pulse align-middle"),
+                    Div(cls="prose prose-sm max-w-none text-slate-800 dark:text-slate-100 leading-relaxed font-normal")(
+                        NotStr(formatted_body),
+                        Span(cls="inline-block w-2 h-4 ml-1 bg-blue-600 animate-pulse align-middle"),
                     )
                 )
                 yield sse_message(streaming_element)
 
             # 2. Final message with collapsible citation drawer
             final_html_body = mistletoe.markdown(accumulated_response)
+            formatted_final_body = format_inline_citations(final_html_body)
             citations_component = CitationDrawer(retrieved_docs)
 
             final_element = Div(
-                Div(cls="prose prose-sm max-w-none text-base-content leading-relaxed")(
-                    NotStr(final_html_body)
+                Div(cls="prose prose-sm max-w-none text-slate-800 dark:text-slate-100 leading-relaxed font-normal")(
+                    NotStr(formatted_final_body)
                 ),
                 citations_component,
             )

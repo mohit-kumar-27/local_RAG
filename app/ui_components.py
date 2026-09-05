@@ -7,8 +7,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import html
 
 from fasthtml.common import (
-    A, Button, Div, Form, H1, H2, H3, H4, Input, Label, Li,
-    Option, P, Pre, Select, Span, Textarea, Ul, to_xml
+    A, Button, Details, Div, Form, H1, H2, H3, H4, Input, Label, Li,
+    Option, P, Pre, Select, Span, Summary, Textarea, Ul, to_xml
 )
 import monsterui.all as ui
 
@@ -125,46 +125,61 @@ def CollectionStatsCard(stats: Dict[str, Any]):
     total_docs = stats.get("total_documents", 0)
     disk_mb = stats.get("disk_size_mb", 0.0)
 
-    return Div(id="collection-stats-card", cls="card bg-base-100 shadow border border-base-200 p-5")(
-        Div(cls="flex justify-between items-center mb-4")(
-            H3(cls="text-base font-bold text-base-content")("Local Knowledge Base Stats"),
-            Div(cls="flex gap-2")(
+    return Div(id="collection-stats-card", cls="card bg-base-100 shadow-sm border border-slate-200 dark:border-slate-800 p-6 space-y-4")(
+        Div(cls="flex flex-wrap justify-between items-center gap-3 pb-2 border-b border-slate-200 dark:border-slate-800")(
+            Div(cls="flex items-center gap-2")(
+                Span(cls="text-base")("📊"),
+                H3(cls="text-base font-bold text-slate-900 dark:text-white tracking-tight")("Local Knowledge Base Stats"),
+            ),
+            Div(cls="flex items-center gap-2.5")(
                 Button(
                     hx_get="/api/stats",
                     hx_target="#collection-stats-card",
                     hx_swap="outerHTML",
-                    cls="uk-button uk-button-default uk-button-xs",
-                )("Refresh"),
+                    cls="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg shadow-2xs hover:shadow-xs transition-all active:scale-95 cursor-pointer",
+                )(
+                    Span("🔄", cls="text-xs"),
+                    Span("Refresh"),
+                ),
                 Button(
                     hx_post="/api/clear",
                     hx_confirm="Are you sure you want to delete all indexed data in DuckDB?",
                     hx_target="#collection-stats-card",
                     hx_swap="outerHTML",
-                    cls="uk-button uk-button-danger uk-button-xs",
-                )("Clear DB"),
+                    cls="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-rose-700 dark:text-rose-200 bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900/60 rounded-lg shadow-2xs hover:shadow-xs transition-all active:scale-95 cursor-pointer",
+                )(
+                    Span("🗑️", cls="text-xs"),
+                    Span("Clear DB"),
+                ),
             ),
         ),
         Div(cls="grid grid-cols-2 md:grid-cols-4 gap-4 text-center")(
-            Div(cls="p-3 bg-base-200 rounded-lg")(
-                Div(cls="text-2xl font-extrabold text-primary")(str(total_docs)),
-                Div(cls="text-xs text-base-content/70")("Total Chunks"),
+            Div(cls="p-4 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xs")(
+                Div(cls="text-2xl md:text-3xl font-black font-mono text-slate-900 dark:text-white tracking-tight")(str(total_docs)),
+                Div(cls="text-xs font-semibold text-slate-600 dark:text-slate-400 mt-1")("Total Chunks"),
             ),
-            Div(cls="p-3 bg-base-200 rounded-lg")(
-                Div(cls="text-2xl font-extrabold text-secondary")(str(code_count)),
-                Div(cls="text-xs text-base-content/70")("Code Chunks"),
+            Div(cls="p-4 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xs")(
+                Div(cls="text-2xl md:text-3xl font-black font-mono text-slate-900 dark:text-white tracking-tight")(str(code_count)),
+                Div(cls="text-xs font-semibold text-slate-600 dark:text-slate-400 mt-1")("Code Chunks"),
             ),
-            Div(cls="p-3 bg-base-200 rounded-lg")(
-                Div(cls="text-2xl font-extrabold text-accent")(str(ticket_count)),
-                Div(cls="text-xs text-base-content/70")("ADO Work Items"),
+            Div(cls="p-4 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xs")(
+                Div(cls="text-2xl md:text-3xl font-black font-mono text-slate-900 dark:text-white tracking-tight")(str(ticket_count)),
+                Div(cls="text-xs font-semibold text-slate-600 dark:text-slate-400 mt-1")("ADO Work Items"),
             ),
-            Div(cls="p-3 bg-base-200 rounded-lg")(
-                Div(cls="text-2xl font-extrabold text-info")(str(confluence_count)),
-                Div(cls="text-xs text-base-content/70")("Confluence Wiki"),
+            Div(cls="p-4 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xs")(
+                Div(cls="text-2xl md:text-3xl font-black font-mono text-slate-900 dark:text-white tracking-tight")(str(confluence_count)),
+                Div(cls="text-xs font-semibold text-slate-600 dark:text-slate-400 mt-1")("Confluence Wiki"),
             ),
         ),
-        Div(cls="mt-3 text-xs text-base-content/60 flex justify-between")(
-            Span(f"Disk storage: {disk_mb} MB"),
-            Span("Storage engine: DuckDB (Vectors + BM25 FTS)"),
+        Div(cls="pt-1 text-xs text-slate-500 dark:text-slate-400 flex flex-wrap justify-between items-center gap-2")(
+            Span(cls="flex items-center gap-1.5")(
+                Span("💾"),
+                Span(f"Disk storage: {disk_mb} MB"),
+            ),
+            Span(cls="flex items-center gap-1.5 font-mono text-[11px] bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-md border border-slate-200 dark:border-slate-700")(
+                Span("🦆"),
+                Span("DuckDB: Vectors (Cosine) + BM25 FTS"),
+            ),
         ),
     )
 
@@ -310,55 +325,122 @@ def IngestProgressUpdateCard(
 
 def CitationDrawer(documents_with_scores: List[Tuple[Document, float]]):
     """
-    MonsterUI Accordion component displaying collapsible citation sources
-    used to generate the answer.
+    High-contrast, accessible citation sources drawer displaying collapsible
+    chunks and metadata used to generate the answer.
+    Uses native Details/Summary styled with robust Tailwind classes to prevent
+    theme background hijacks (e.g. blue-on-blue text).
     """
     if not documents_with_scores:
         return Div()
 
-    accordion_items = []
+    citation_cards = []
     for idx, (doc, score) in enumerate(documents_with_scores, start=1):
         citation = doc.get_citation_tag()
-        type_badge_cls = {
-            "code": "uk-badge-secondary",
-            "ticket": "uk-badge-accent",
-            "confluence": "uk-badge-info",
-        }.get(doc.doc_type, "uk-badge-default")
 
-        title_component = Div(cls="flex flex-wrap items-center gap-2 text-xs")(
-            Span(cls=f"uk-badge {type_badge_cls} font-mono uppercase text-[10px]")(doc.doc_type),
-            Span(cls="font-semibold text-base-content")(citation),
-            Span(cls="font-mono text-base-content/50 ml-auto")(f"Relevance: {score:.3f}"),
-        )
+        # Dedicated, accessible high-contrast badge styles per source type
+        badge_style = {
+            "code": "bg-sky-100 text-sky-900 border-sky-300 dark:bg-sky-950 dark:text-sky-200 dark:border-sky-800",
+            "ticket": "bg-emerald-100 text-emerald-900 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-200 dark:border-emerald-800",
+            "confluence": "bg-purple-100 text-purple-900 border-purple-300 dark:bg-purple-950 dark:text-purple-200 dark:border-purple-800",
+        }.get(doc.doc_type, "bg-slate-100 text-slate-900 border-slate-300 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700")
 
-        body_content = Div(cls="p-3 bg-base-200 rounded-md text-xs space-y-2 font-mono")(
-            Div(cls="flex justify-between items-center text-base-content/70 text-[11px] pb-1 border-b border-base-300")(
-                Span(f"Source URL: "),
-                A(href=doc.source_url, target="_blank", rel="noopener noreferrer", cls="text-primary hover:underline truncate max-w-md")(
-                    doc.source_url
+        summary_component = Summary(
+            cls=(
+                "flex flex-wrap items-center justify-between gap-2.5 p-3.5 cursor-pointer select-none list-none "
+                "[&::-webkit-details-marker]:hidden bg-slate-50 dark:bg-slate-800/90 hover:bg-slate-100/90 "
+                "dark:hover:bg-slate-800 transition-colors rounded-xl border border-slate-200 dark:border-slate-700 "
+                "group-open:rounded-b-none group-open:border-b-transparent"
+            )
+        )(
+            Div(cls="flex items-center gap-2.5 min-w-0 flex-1")(
+                Span(
+                    cls=f"px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider font-mono border shadow-2xs flex-shrink-0 {badge_style}"
+                )(doc.doc_type),
+                Span(
+                    cls="font-bold font-mono text-xs text-slate-900 dark:text-white truncate"
+                )(citation),
+            ),
+            Div(cls="flex items-center gap-3 text-xs font-mono flex-shrink-0")(
+                Span(cls="text-slate-600 dark:text-slate-300 font-semibold text-[11px]")(
+                    f"Relevance: {score:.3f}"
                 ),
-            ),
-            Div(cls="text-base-content/70 text-[11px]")(f"File Path: {doc.file_path}") if doc.file_path else None,
-            Div(cls="text-base-content/70 text-[11px]")(f"Sprint: {doc.sprint_id}") if doc.sprint_id else None,
-            Div(cls="text-base-content/70 text-[11px]")(f"Work Item ID: {doc.work_item_id}") if doc.work_item_id else None,
-            Pre(cls="bg-base-300 p-3 rounded text-[11px] whitespace-pre-wrap overflow-x-auto max-h-48 border border-base-content/10")(
-                doc.content
+                Span(
+                    cls="text-slate-400 dark:text-slate-400 text-xs transition-transform duration-200 group-open:rotate-180"
+                )("▼"),
             ),
         )
 
-        accordion_items.append(
-            ui.AccordionItem(
-                title_component,
+        body_content = Div(
+            cls=(
+                "p-4 space-y-3 font-mono text-xs bg-white dark:bg-slate-900 border-x border-b "
+                "border-slate-200 dark:border-slate-700 rounded-b-xl shadow-xs"
+            )
+        )(
+            Div(
+                cls="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-slate-800 text-[11px]"
+            )(
+                Span(cls="font-bold text-slate-700 dark:text-slate-300")("Source URL:"),
+                A(
+                    href=doc.source_url,
+                    target="_blank",
+                    rel="noopener noreferrer",
+                    cls="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 underline font-medium truncate max-w-lg",
+                )(doc.source_url),
+            ),
+            (
+                Div(cls="flex items-center gap-2 text-[11px]")(
+                    Span(cls="font-bold text-slate-500 dark:text-slate-400")("File Path:"),
+                    Span(cls="text-slate-800 dark:text-slate-200 font-medium truncate")(doc.file_path),
+                )
+                if doc.file_path
+                else None
+            ),
+            (
+                Div(cls="flex items-center gap-2 text-[11px]")(
+                    Span(cls="font-bold text-slate-500 dark:text-slate-400")("Sprint:"),
+                    Span(cls="text-slate-800 dark:text-slate-200 font-medium")(doc.sprint_id),
+                )
+                if doc.sprint_id
+                else None
+            ),
+            (
+                Div(cls="flex items-center gap-2 text-[11px]")(
+                    Span(cls="font-bold text-slate-500 dark:text-slate-400")("Work Item ID:"),
+                    Span(cls="text-slate-800 dark:text-slate-200 font-medium")(doc.work_item_id),
+                )
+                if doc.work_item_id
+                else None
+            ),
+            Div(cls="pt-1")(
+                Div(cls="flex items-center justify-between text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1.5")(
+                    Span("Matched Source Snippet:"),
+                    Span(f"{len(doc.content)} chars", cls="text-slate-400 dark:text-slate-500 font-mono text-[10px] font-normal"),
+                ),
+                Pre(
+                    cls=(
+                        "bg-[#0f172a] text-[#f8fafc] p-4 rounded-xl text-xs leading-relaxed font-mono "
+                        "whitespace-pre-wrap overflow-x-auto max-h-64 border border-slate-800 "
+                        "shadow-inner selection:bg-blue-600 selection:text-white"
+                    )
+                )(doc.content),
+            ),
+        )
+
+        citation_cards.append(
+            Details(cls="group mb-2.5")(
+                summary_component,
                 body_content,
-                cls="border border-base-300 rounded-lg p-2 mb-2 bg-base-100",
             )
         )
 
-    return Div(cls="mt-4 pt-3 border-t border-base-300")(
-        Div(cls="text-xs font-bold text-base-content/70 uppercase tracking-wider mb-2")(
-            f"📚 Retrieved Context Sources ({len(documents_with_scores)})"
+    return Div(cls="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800")(
+        Div(cls="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-3 flex items-center gap-2")(
+            Span("📚", cls="text-sm"),
+            Span(f"Retrieved Context Sources ({len(documents_with_scores)})"),
         ),
-        ui.Accordion(*accordion_items, multiple=True, collapsible=True),
+        Div(cls="space-y-1")(
+            *citation_cards
+        ),
     )
 
 
