@@ -107,12 +107,73 @@ app, rt = fast_app(
             overflow-y: auto !important;
             scrollbar-gutter: stable;
         }
+
+        /* Smooth collapsible sidebar transitions */
+        #chat-sidebar {
+            transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+                        min-width 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+                        max-width 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+                        opacity 0.18s ease-in-out;
+            will-change: width, opacity;
+        }
+        #chat-sidebar.collapsed {
+            width: 0 !important;
+            min-width: 0 !important;
+            max-width: 0 !important;
+            padding-left: 0 !important;
+            padding-right: 0 !important;
+            margin-left: 0 !important;
+            margin-right: 0 !important;
+            border-right-width: 0 !important;
+            overflow: hidden !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
+        }
+        @media (max-width: 767px) {
+            #chat-sidebar.collapsed {
+                display: none !important;
+            }
+        }
         """),
         # HTMX SSE Extension
         Script(src="https://unpkg.com/htmx-ext-sse@2.2.2/sse.js"),
-        # Auto-scroll & SSE close handling
+        # Auto-scroll, SSE close handling & Collapsible Sidebar State
         Script("""
+        function toggleChatSidebar() {
+            const sidebar = document.getElementById('chat-sidebar');
+            if (!sidebar) return;
+            const isCollapsed = sidebar.classList.toggle('collapsed');
+            try {
+                localStorage.setItem('chat_sidebar_collapsed', isCollapsed ? 'true' : 'false');
+            } catch (e) {}
+            updateSidebarToggleBtns(isCollapsed);
+        }
+
+        function updateSidebarToggleBtns(isCollapsed) {
+            const expandBtn = document.getElementById('chat-sidebar-expand-btn');
+            if (expandBtn) {
+                expandBtn.style.display = isCollapsed ? 'inline-flex' : 'none';
+            }
+        }
+
+        function initChatSidebarState() {
+            const sidebar = document.getElementById('chat-sidebar');
+            if (!sidebar) return;
+            let shouldCollapse = false;
+            try {
+                shouldCollapse = localStorage.getItem('chat_sidebar_collapsed') === 'true';
+            } catch (e) {}
+            if (shouldCollapse) {
+                sidebar.classList.add('collapsed');
+            } else {
+                sidebar.classList.remove('collapsed');
+            }
+            updateSidebarToggleBtns(shouldCollapse);
+        }
+
+        document.addEventListener('DOMContentLoaded', initChatSidebarState);
         document.addEventListener('htmx:afterSwap', function(evt) {
+            initChatSidebarState();
             const chatMainArea = document.getElementById('chat-main-area');
             if (chatMainArea && evt.detail && evt.detail.target) {
                 if (evt.detail.target.id === 'chat-history' || evt.detail.target.closest('#chat-history')) {
@@ -120,6 +181,15 @@ app, rt = fast_app(
                     if (isNearBottom) {
                         chatMainArea.scrollTop = chatMainArea.scrollHeight;
                     }
+                }
+            }
+        });
+        document.addEventListener('keydown', function(evt) {
+            if ((evt.ctrlKey || evt.metaKey) && evt.key.toLowerCase() === 'b') {
+                const sidebar = document.getElementById('chat-sidebar');
+                if (sidebar) {
+                    evt.preventDefault();
+                    toggleChatSidebar();
                 }
             }
         });
@@ -429,16 +499,30 @@ async def post_edit_message(
         )(
             Div(cls="sticky top-0 z-10 bg-base-200/95 backdrop-blur-sm pt-1 pb-3 mb-2 flex-shrink-0")(
                 Div(cls="flex flex-wrap items-center justify-between gap-3 p-3 bg-base-100 border border-base-300 rounded-xl shadow-sm text-xs w-full")(
-                    Div(cls="flex items-center gap-2")(
-                        Span(cls="font-semibold text-base-content/70 flex items-center gap-1.5")(
-                            Span("🔍"),
-                            "Target Scope:"
+                    Div(cls="flex items-center gap-2.5")(
+                        Button(
+                            id="chat-sidebar-expand-btn",
+                            type="button",
+                            onclick="toggleChatSidebar()",
+                            title="Show chat sessions (Ctrl+B)",
+                            cls="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-base-200 hover:bg-base-300 border border-base-300 rounded-lg shadow-2xs transition-all active:scale-95 cursor-pointer",
+                            style="display: none;",
+                        )(
+                            Span("💬", cls="text-xs"),
+                            Span("Sessions", cls="font-semibold text-xs"),
+                            Span("▶", cls="text-[10px] text-slate-400 dark:text-slate-500 font-bold"),
                         ),
-                        Select(id="doc-type-filter", name="doc_type_filter", cls="uk-select uk-select-sm text-xs rounded-lg w-44 bg-base-200 border-base-300")(
-                            Option(value="all", selected=(doc_type_filter == "all"))("All Sources (Auto-route)"),
-                            Option(value="code", selected=(doc_type_filter == "code"))("Source Code Only"),
-                            Option(value="ticket", selected=(doc_type_filter == "ticket"))("ADO Work Items / Bugs"),
-                            Option(value="confluence", selected=(doc_type_filter == "confluence"))("Confluence Wiki Pages"),
+                        Div(cls="flex items-center gap-2")(
+                            Span(cls="font-semibold text-base-content/70 flex items-center gap-1.5")(
+                                Span("🔍"),
+                                "Target Scope:"
+                            ),
+                            Select(id="doc-type-filter", name="doc_type_filter", cls="uk-select uk-select-sm text-xs rounded-lg w-44 bg-base-200 border-base-300")(
+                                Option(value="all", selected=(doc_type_filter == "all"))("All Sources (Auto-route)"),
+                                Option(value="code", selected=(doc_type_filter == "code"))("Source Code Only"),
+                                Option(value="ticket", selected=(doc_type_filter == "ticket"))("ADO Work Items / Bugs"),
+                                Option(value="confluence", selected=(doc_type_filter == "confluence"))("Confluence Wiki Pages"),
+                            ),
                         ),
                     ),
                     Div(cls="flex items-center gap-2")(

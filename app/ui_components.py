@@ -609,9 +609,19 @@ def ChatSidebar(chats: List[ChatSession], active_chat_id: Optional[str] = None, 
         **kwargs,
     )(
         Div(cls="p-3 border-b border-base-300 flex items-center justify-between gap-2 flex-shrink-0 bg-base-100/90")(
-            Span(cls="text-xs font-bold uppercase tracking-wider text-base-content/70 flex items-center gap-1.5")(
-                Span("💬"),
-                "Sessions",
+            Div(cls="flex items-center gap-1.5")(
+                Button(
+                    type="button",
+                    onclick="toggleChatSidebar()",
+                    title="Collapse sidebar (Ctrl+B)",
+                    cls="p-1 text-base-content/60 hover:text-base-content hover:bg-base-200 rounded-lg transition-all cursor-pointer flex items-center justify-center",
+                )(
+                    Span("◀", cls="text-xs font-bold"),
+                ),
+                Span(cls="text-xs font-bold uppercase tracking-wider text-base-content/70 flex items-center gap-1.5")(
+                    Span("💬"),
+                    "Sessions",
+                ),
             ),
             A(
                 href="/?tab=chat",
@@ -918,16 +928,30 @@ def ChatMainArea(messages: Optional[List[ChatMessageRecord]] = None, active_chat
     )(
         Div(cls="sticky top-0 z-10 bg-base-200/95 backdrop-blur-sm pt-1 pb-3 mb-2 flex-shrink-0")(
             Div(cls="flex flex-wrap items-center justify-between gap-3 p-3 bg-base-100 border border-base-300 rounded-xl shadow-sm text-xs w-full")(
-                Div(cls="flex items-center gap-2")(
-                    Span(cls="font-semibold text-base-content/70 flex items-center gap-1.5")(
-                        Span("🔍"),
-                        "Target Scope:"
+                Div(cls="flex items-center gap-2.5")(
+                    Button(
+                        id="chat-sidebar-expand-btn",
+                        type="button",
+                        onclick="toggleChatSidebar()",
+                        title="Show chat sessions (Ctrl+B)",
+                        cls="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-base-200 hover:bg-base-300 border border-base-300 rounded-lg shadow-2xs transition-all active:scale-95 cursor-pointer",
+                        style="display: none;",
+                    )(
+                        Span("💬", cls="text-xs"),
+                        Span("Sessions", cls="font-semibold text-xs"),
+                        Span("▶", cls="text-[10px] text-slate-400 dark:text-slate-500 font-bold"),
                     ),
-                    Select(id="doc-type-filter", name="doc_type_filter", cls="uk-select uk-select-sm text-xs rounded-lg w-44 bg-base-200 border-base-300")(
-                        Option(value="all")("All Sources (Auto-route)"),
-                        Option(value="code")("Source Code Only"),
-                        Option(value="ticket")("ADO Work Items / Bugs"),
-                        Option(value="confluence")("Confluence Wiki Pages"),
+                    Div(cls="flex items-center gap-2")(
+                        Span(cls="font-semibold text-base-content/70 flex items-center gap-1.5")(
+                            Span("🔍"),
+                            "Target Scope:"
+                        ),
+                        Select(id="doc-type-filter", name="doc_type_filter", cls="uk-select uk-select-sm text-xs rounded-lg w-44 bg-base-200 border-base-300")(
+                            Option(value="all")("All Sources (Auto-route)"),
+                            Option(value="code")("Source Code Only"),
+                            Option(value="ticket")("ADO Work Items / Bugs"),
+                            Option(value="confluence")("Confluence Wiki Pages"),
+                        ),
                     ),
                 ),
                 Div(cls="flex items-center gap-2")(

@@ -273,7 +273,32 @@ class TestChatHistory(unittest.TestCase):
         self.assertEqual(len(updated_msg.citations), 1)
         self.assertEqual(updated_msg.citations[0]["file_path"], "app/main.py")
 
+    def test_collapsible_sidebar(self):
+        from starlette.testclient import TestClient
+        from app.main import app
+
+        client = TestClient(app)
+        resp = client.get("/?tab=chat")
+        self.assertEqual(resp.status_code, 200)
+
+        # 1. Verify ChatSidebar contains the collapse toggle button with toggleChatSidebar()
+        self.assertIn("toggleChatSidebar()", resp.text)
+        self.assertIn("Collapse sidebar", resp.text)
+
+        # 2. Verify ChatMainArea contains the expand button with id="chat-sidebar-expand-btn"
+        self.assertIn('id="chat-sidebar-expand-btn"', resp.text)
+
+        # 3. Verify CSS rules for smooth collapsible transition and collapsed state exist
+        self.assertIn("#chat-sidebar.collapsed", resp.text)
+        self.assertIn("transition: width", resp.text)
+
+        # 4. Verify JS functions for toggling, localStorage persistence, and shortcut exist
+        self.assertIn("function toggleChatSidebar()", resp.text)
+        self.assertIn("function initChatSidebarState()", resp.text)
+        self.assertIn("chat_sidebar_collapsed", resp.text)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
