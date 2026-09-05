@@ -8,7 +8,7 @@ import html
 
 from fasthtml.common import (
     A, Button, Div, Form, H1, H2, H3, H4, Input, Label, Li,
-    Option, P, Pre, Select, Span, Ul, to_xml
+    Option, P, Pre, Select, Span, Textarea, Ul, to_xml
 )
 import monsterui.all as ui
 
@@ -213,6 +213,7 @@ def IngestProgressSSEComponent(job_id: str):
         hx_ext="sse",
         sse_connect=f"/api/ingest/stream/{job_id}",
         sse_swap="message",
+        sse_close="close",
         cls="card bg-base-100 shadow border border-base-200 p-5",
     )(
         Div(cls="flex items-center space-x-3 mb-2")(
@@ -323,75 +324,121 @@ def CitationDrawer(documents_with_scores: List[Tuple[Document, float]]):
 
 def ChatTab():
     """Tab 2: Ask Chatbot view with message timeline, query input, filter bar, and citations."""
-    return Div(cls="max-w-5xl mx-auto py-6 px-4 flex flex-col h-[calc(100vh-140px)]")(
+    return Div(cls="flex-1 flex flex-col min-h-0 max-w-5xl w-full mx-auto p-4 md:px-6 md:py-4")(
         # Filter row
-        Div(cls="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-base-200 mb-4")(
-            Div(cls="flex items-center space-x-2")(
-                Span(cls="text-xs font-semibold text-base-content/70")("Filter Context:"),
-                Select(id="doc-type-filter", name="doc_type_filter", cls="uk-select uk-select-sm text-xs rounded-md w-36")(
-                    Option(value="all")("All Sources"),
-                    Option(value="code")("Code Only"),
-                    Option(value="ticket")("ADO Tickets Only"),
-                    Option(value="confluence")("Confluence Only"),
+        Div(cls="flex flex-wrap items-center justify-between gap-3 p-3 bg-base-100 border border-base-300 rounded-xl mb-3 shadow-sm text-xs flex-shrink-0")(
+            Div(cls="flex items-center gap-2")(
+                Span(cls="font-semibold text-base-content/70 flex items-center gap-1.5")(
+                    Span("🔍"),
+                    "Target Scope:"
+                ),
+                Select(id="doc-type-filter", name="doc_type_filter", cls="uk-select uk-select-sm text-xs rounded-lg w-44 bg-base-200 border-base-300")(
+                    Option(value="all")("All Sources (Auto-route)"),
+                    Option(value="code")("Source Code Only"),
+                    Option(value="ticket")("ADO Work Items / Bugs"),
+                    Option(value="confluence")("Confluence Wiki Pages"),
                 ),
             ),
-            Div(cls="flex items-center space-x-2")(
+            Div(cls="flex items-center gap-2")(
+                Span(cls="font-semibold text-base-content/70 flex items-center gap-1.5")(
+                    Span("🏷️"),
+                    "Sprint Filter:"
+                ),
                 Input(
                     id="sprint-filter",
                     name="sprint_filter",
                     type="text",
-                    placeholder="Filter by Sprint (e.g. Sprint 42)",
-                    cls="uk-input uk-input-sm text-xs rounded-md w-48",
+                    placeholder="e.g. Sprint 42 (optional)",
+                    cls="uk-input uk-input-sm text-xs rounded-lg w-48 bg-base-200 border-base-300",
                 ),
             ),
         ),
 
-        # Chat history container
+        # Chat history container - occupies all remaining vertical space with smooth scrolling
         Div(
             id="chat-history",
-            cls="flex-1 overflow-y-auto space-y-4 pr-2 pb-4",
+            cls="flex-1 min-h-0 overflow-y-auto space-y-4 pr-2 pb-4 scroll-smooth",
         )(
             # Welcome bubble
             Div(cls="flex items-start space-x-3")(
-                Div(cls="w-8 h-8 rounded-full bg-primary text-primary-content flex items-center justify-center font-bold text-xs")("AI"),
-                Div(cls="flex-1 bg-base-100 border border-base-200 rounded-2xl p-4 shadow-sm")(
-                    P(cls="text-sm text-base-content")(
-                        "Hello! I am your strictly local, confidential RAG assistant. "
-                        "I answer questions using only the codebases, Azure DevOps work items, and Confluence documentation indexed into your local DuckDB database."
+                Div(cls="w-9 h-9 rounded-full bg-primary text-primary-content flex-shrink-0 flex items-center justify-center font-bold text-xs shadow-sm")("AI"),
+                Div(cls="flex-1 bg-base-100 border border-base-300 rounded-2xl p-5 shadow-sm space-y-2")(
+                    P(cls="text-sm text-base-content font-medium")(
+                        "Hello! I am your strictly local, confidential RAG assistant."
                     ),
-                    P(cls="text-xs text-base-content/70 mt-2")(
-                        "Every statement is grounded in local context with explicit inline citations. "
-                        "Try asking questions like: 'How does authentication work in our services?', 'What bugs are open in Sprint 42?', or 'What is our deployment architecture?'"
+                    P(cls="text-xs text-base-content/70 leading-relaxed")(
+                        "I answer questions using only the codebases, Azure DevOps work items, and Confluence documentation indexed into your local DuckDB database. "
+                        "Every statement is grounded in local context with explicit inline citations."
+                    ),
+                    Div(cls="pt-2 flex flex-wrap gap-2")(
+                        Span(cls="text-[11px] bg-base-200 text-base-content/70 px-2.5 py-1 rounded-md border border-base-300")(
+                            "💡 Example: 'How does authentication work in our services?'"
+                        ),
+                        Span(cls="text-[11px] bg-base-200 text-base-content/70 px-2.5 py-1 rounded-md border border-base-300")(
+                            "💡 Example: 'What bugs are open in Sprint 42?'"
+                        ),
                     ),
                 ),
             ),
         ),
 
-        # Chat input container
-        Div(cls="pt-3 border-t border-base-200 mt-2")(
+        # Chat input container - anchored at the bottom with spacious prompt box
+        Div(cls="flex-shrink-0 pt-2")(
             Form(
+                id="chat-form",
                 hx_post="/api/chat",
                 hx_target="#chat-history",
                 hx_swap="beforeend",
                 hx_include="#doc-type-filter, #sprint-filter",
-                hx_on__after_request="this.reset(); document.getElementById('chat-history').scrollTop = document.getElementById('chat-history').scrollHeight;",
-                cls="flex gap-2",
+                hx_on__after_request="""
+                    const qInput = document.getElementById('query-input');
+                    if (qInput) {
+                        qInput.value = '';
+                        qInput.style.height = '64px';
+                    }
+                    const chatBox = document.getElementById('chat-history');
+                    if (chatBox) {
+                        chatBox.scrollTop = chatBox.scrollHeight;
+                    }
+                """,
+                cls="w-full bg-base-100 border border-base-300 rounded-2xl shadow-md p-3 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-all",
             )(
-                Input(
-                    id="query-input",
-                    name="query",
-                    type="text",
-                    required=True,
-                    autocomplete="off",
-                    placeholder="Ask a question about your code, boards, or wiki...",
-                    cls="uk-input flex-1 rounded-xl text-sm py-3 px-4",
-                ),
-                Button(
-                    type="submit",
-                    cls="uk-button uk-button-primary rounded-xl px-5 flex items-center gap-1",
-                )(
-                    Span("Ask"),
-                    Span(cls="text-xs")("↵"),
+                Div(cls="flex flex-col gap-2")(
+                    Textarea(
+                        id="query-input",
+                        name="query",
+                        required=True,
+                        rows=2,
+                        placeholder="Ask a technical question about your code, boards, or wiki... (Enter to send, Shift+Enter for new line)",
+                        onkeydown="""
+                            if (event.key === 'Enter' && !event.shiftKey) {
+                                event.preventDefault();
+                                if (this.value.trim().length > 0) {
+                                    htmx.trigger(this.closest('form'), 'submit');
+                                }
+                            }
+                        """,
+                        oninput="this.style.height = 'auto'; this.style.height = Math.min(this.scrollHeight, 180) + 'px';",
+                        cls="w-full bg-transparent border-0 focus:outline-none focus:ring-0 text-sm text-base-content placeholder:text-base-content/50 resize-none py-1 px-2 leading-relaxed min-h-[64px] max-h-[180px]",
+                    ),
+                    Div(cls="flex items-center justify-between pt-2 border-t border-base-200 text-xs text-base-content/60")(
+                        Div(cls="flex items-center gap-1.5")(
+                            Span(cls="text-[11px] hidden sm:inline")("Press"),
+                            Span(cls="px-1.5 py-0.5 bg-base-200 border border-base-300 rounded text-[10px] font-mono text-base-content/80")("Enter ↵"),
+                            Span(cls="text-[11px] hidden sm:inline")("to send,"),
+                            Span(cls="px-1.5 py-0.5 bg-base-200 border border-base-300 rounded text-[10px] font-mono text-base-content/80")("Shift + Enter"),
+                            Span(cls="text-[11px] hidden sm:inline")("for newline"),
+                        ),
+                        Div(cls="flex items-center gap-2")(
+                            Button(
+                                type="submit",
+                                cls="uk-button uk-button-primary uk-button-sm rounded-xl px-5 py-1.5 flex items-center gap-1.5 font-medium shadow-sm hover:shadow",
+                            )(
+                                Span("Ask"),
+                                Span(cls="text-xs font-bold")("→"),
+                            ),
+                        ),
+                    ),
                 ),
             ),
         ),

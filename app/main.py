@@ -45,12 +45,17 @@ app, rt = fast_app(
         *ui.Theme.blue.headers(),
         # HTMX SSE Extension
         Script(src="https://unpkg.com/htmx-ext-sse@2.2.2/sse.js"),
-        # Tailwind typography & style fixes
+        # Tailwind typography, auto-scroll & SSE close handling
         Script("""
         document.addEventListener('htmx:afterSwap', function(evt) {
             const chatBox = document.getElementById('chat-history');
             if (chatBox) {
                 chatBox.scrollTop = chatBox.scrollHeight;
+            }
+        });
+        document.addEventListener('htmx:sseClose', function(evt) {
+            if (evt.target) {
+                evt.target.removeAttribute('sse-connect');
             }
         });
         """),
@@ -60,14 +65,14 @@ app, rt = fast_app(
 
 
 def MainLayout(active_tab: str = "chat", ollama_ok: bool = True):
-    """Main application shell."""
+    """Main application shell with fixed full-viewport layout."""
     stats = store.get_collection_stats()
     content = IngestionTab(stats) if active_tab == "ingest" else ChatTab()
 
-    return Div(id="main-content", cls="min-h-screen bg-base-200 text-base-content flex flex-col font-sans")(
+    return Div(id="main-content", cls="h-screen bg-base-200 text-base-content flex flex-col font-sans overflow-hidden")(
         AppHeader(ollama_connected=ollama_ok, current_model=config.get_active_llm_model()),
         TabNavigation(active_tab=active_tab),
-        Div(id="tab-content", cls="flex-1")(
+        Div(id="tab-content", cls="flex-1 flex flex-col min-h-0 overflow-hidden")(
             content
         ),
     )
@@ -181,6 +186,7 @@ async def get_ingest_stream(job_id: str):
             yield sse_message(card)
 
             if job.status in ("completed", "failed"):
+                yield "event: close\ndata: finished\n\n"
                 break
             await asyncio.sleep(0.6)
 
@@ -203,11 +209,11 @@ async def post_chat(
     encoded_sprint = urllib.parse.quote(sprint_filter.strip() if sprint_filter else "")
 
     # User message element
-    user_bubble = Div(cls="flex items-start justify-end space-x-3")(
-        Div(cls="bg-primary text-primary-content rounded-2xl p-4 shadow-sm max-w-2xl text-sm")(
+    user_bubble = Div(cls="flex items-start justify-end space-x-3 w-full")(
+        Div(cls="bg-primary text-primary-content rounded-2xl p-4 shadow-sm max-w-2xl text-sm leading-relaxed whitespace-pre-wrap")(
             P(query.strip())
         ),
-        Div(cls="w-8 h-8 rounded-full bg-base-300 text-base-content flex items-center justify-center font-bold text-xs")("YOU"),
+        Div(cls="w-9 h-9 rounded-full bg-base-300 text-base-content flex-shrink-0 flex items-center justify-center font-bold text-xs shadow-sm")("YOU"),
     )
 
     # Assistant SSE streaming placeholder element
@@ -217,10 +223,15 @@ async def post_chat(
         hx_ext="sse",
         sse_connect=stream_url,
         sse_swap="message",
-        cls="flex items-start space-x-3",
+        sse_close="close",
+        hx_target=f"#response-box-{stream_id}",
+        cls="flex items-start space-x-3 w-full",
     )(
-        Div(cls="w-8 h-8 rounded-full bg-secondary text-secondary-content flex items-center justify-center font-bold text-xs")("AI"),
-        Div(cls="flex-1 bg-base-100 border border-base-200 rounded-2xl p-4 shadow-sm space-y-2")(
+        Div(cls="w-9 h-9 rounded-full bg-secondary text-secondary-content flex-shrink-0 flex items-center justify-center font-bold text-xs shadow-sm")("AI"),
+        Div(
+            id=f"response-box-{stream_id}",
+            cls="flex-1 bg-base-100 border border-base-300 rounded-2xl p-5 shadow-sm min-w-0 space-y-3",
+        )(
             Div(cls="flex items-center space-x-2 text-xs text-base-content/70")(
                 Div(cls="animate-spin h-4 w-4 border-2 border-secondary border-t-transparent rounded-full"),
                 Span("Searching local knowledge base & generating grounded response..."),
@@ -241,6 +252,7 @@ async def get_chat_stream(
     """
     SSE endpoint:
     Streams token-by-token generation from Ollama, followed by the collapsible Citation Drawer.
+    Explicitly emits 'close' event upon completion to terminate EventSource cleanly.
     """
     query = urllib.parse.unquote(q)
     doc_filter = urllib.parse.unquote(doc_type) if doc_type != "all" else None
@@ -263,16 +275,10 @@ async def get_chat_stream(
                 html_body = mistletoe.markdown(accumulated_response)
 
                 streaming_element = Div(
-                    id=f"stream-container-{stream_id}",
-                    cls="flex items-start space-x-3",
-                )(
-                    Div(cls="w-8 h-8 rounded-full bg-secondary text-secondary-content flex items-center justify-center font-bold text-xs")("AI"),
-                    Div(cls="flex-1 bg-base-100 border border-base-200 rounded-2xl p-4 shadow-sm text-sm")(
-                        Div(cls="prose prose-sm max-w-none text-base-content")(
-                            NotStr(html_body)
-                        ),
-                        Div(cls="inline-block animate-pulse text-secondary text-xs mt-1")("●"),
-                    ),
+                    Div(cls="prose prose-sm max-w-none text-base-content leading-relaxed")(
+                        NotStr(html_body),
+                        Span(cls="inline-block w-2 h-4 ml-1 bg-secondary animate-pulse align-middle"),
+                    )
                 )
                 yield sse_message(streaming_element)
 
@@ -281,32 +287,23 @@ async def get_chat_stream(
             citations_component = CitationDrawer(retrieved_docs)
 
             final_element = Div(
-                id=f"stream-container-{stream_id}",
-                cls="flex items-start space-x-3",
-            )(
-                Div(cls="w-8 h-8 rounded-full bg-secondary text-secondary-content flex items-center justify-center font-bold text-xs")("AI"),
-                Div(cls="flex-1 bg-base-100 border border-base-200 rounded-2xl p-4 shadow-sm text-sm")(
-                    Div(cls="prose prose-sm max-w-none text-base-content")(
-                        NotStr(final_html_body)
-                    ),
-                    citations_component,
+                Div(cls="prose prose-sm max-w-none text-base-content leading-relaxed")(
+                    NotStr(final_html_body)
                 ),
+                citations_component,
             )
             yield sse_message(final_element)
+            # Send close event to prevent browser EventSource from reconnecting and looping
+            yield "event: close\ndata: finished\n\n"
 
         except Exception as e:
             error_element = Div(
-                id=f"stream-container-{stream_id}",
-                cls="flex items-start space-x-3",
-            )(
-                Div(cls="w-8 h-8 rounded-full bg-error text-error-content flex items-center justify-center font-bold text-xs")("!"),
-                Div(cls="flex-1 bg-base-100 border border-error/30 rounded-2xl p-4 shadow-sm text-sm")(
-                    Div(cls="uk-alert uk-alert-danger text-xs p-3 rounded")(
-                        f"Generation error: {str(e)}. Ensure Ollama is running and models are pulled."
-                    )
-                ),
+                Div(cls="uk-alert uk-alert-danger text-xs p-3 rounded font-mono")(
+                    f"Generation error: {str(e)}. Ensure Ollama is running and models are pulled."
+                )
             )
             yield sse_message(error_element)
+            yield "event: close\ndata: error\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
