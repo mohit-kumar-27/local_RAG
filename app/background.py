@@ -139,18 +139,19 @@ async def execute_ingestion(
             ins = store.insert_documents(current_batch_docs)
             total_inserted += ins
 
-            # Accurate progress percentage directly reflecting chunks embedded
-            pct = int(100 * end / len(docs_to_embed))
-            job.progress = min(pct, 99)
+            # Scale embedding progress smoothly across the 40% -> 95% window
+            pct = 40 + int(55 * end / len(docs_to_embed))
+            job.progress = min(pct, 95)
             job.stage = f"Embedding chunks: {end}/{len(docs_to_embed)} (batch {b_idx + 1}/{total_batches})..."
 
         job.add_log(f"Generated {len(docs_to_embed)} vector embeddings and committed to DuckDB.")
 
         # Step 4: Finalize and rebuild FTS
         job.stage = "Optimizing search indexes..."
-        job.progress = 100
+        job.progress = 98
         job.new_indexed = total_inserted
         job.status = "completed"
+        job.progress = 100
         job.stage = "Complete"
         job.add_log(f"Successfully indexed {total_inserted} chunks into DuckDB.")
 
