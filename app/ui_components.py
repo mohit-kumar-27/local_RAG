@@ -636,7 +636,7 @@ def ChatSidebar(chats: List[ChatSession], active_chat_id: Optional[str] = None, 
 
 def UserMessageBubble(msg: ChatMessageRecord, chat_id: str, cls: Optional[str] = None, **kwargs):
     """Renders a user message bubble with inline Edit and Delete action controls."""
-    base_cls = "group flex items-start justify-end gap-2.5 w-full my-1.5"
+    base_cls = "flex items-start justify-end gap-2.5 w-full my-1.5"
     if cls:
         base_cls = f"{base_cls} {cls}"
     return Div(
@@ -644,33 +644,35 @@ def UserMessageBubble(msg: ChatMessageRecord, chat_id: str, cls: Optional[str] =
         cls=base_cls,
         **kwargs,
     )(
-        Div(
-            cls="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity self-center text-xs"
-        )(
-            Button(
-                hx_get=f"/api/chats/{chat_id}/messages/{msg.id}/edit-form",
-                hx_target=f"#user-bubble-container-{msg.id}",
-                hx_swap="outerHTML",
-                title="Edit message",
-                cls="px-2 py-1 bg-base-200 hover:bg-base-300 border border-base-300 rounded-lg text-slate-600 dark:text-slate-300 font-medium text-[11px] shadow-2xs hover:shadow-xs transition-all cursor-pointer flex items-center gap-1",
+        Div(cls="group relative flex items-start justify-end gap-2 max-w-2xl")(
+            Div(
+                cls="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity mt-1.5 flex-shrink-0 text-xs"
             )(
-                Span("✏️", cls="text-[10px]"),
-                Span("Edit"),
+                Button(
+                    hx_get=f"/api/chats/{chat_id}/messages/{msg.id}/edit-form",
+                    hx_target=f"#user-bubble-container-{msg.id}",
+                    hx_swap="outerHTML",
+                    title="Edit message",
+                    cls="px-2 py-1 bg-base-200 hover:bg-base-300 border border-base-300 rounded-lg text-slate-600 dark:text-slate-300 font-medium text-[11px] shadow-2xs hover:shadow-xs transition-all cursor-pointer flex items-center gap-1",
+                )(
+                    Span("✏️", cls="text-[10px]"),
+                    Span("Edit"),
+                ),
+                Button(
+                    hx_delete=f"/api/chats/{chat_id}/messages/{msg.id}",
+                    hx_confirm="Are you sure you want to delete this question and its paired AI response?",
+                    hx_target=f"#turn-{msg.id}",
+                    hx_swap="outerHTML",
+                    title="Delete question and response",
+                    cls="px-1.5 py-1 bg-base-200 hover:bg-rose-100 dark:hover:bg-rose-950/60 border border-base-300 rounded-lg text-slate-500 hover:text-rose-700 font-medium text-[11px] shadow-2xs hover:shadow-xs transition-all cursor-pointer flex items-center",
+                )(
+                    Span("🗑️", cls="text-[10px]"),
+                ),
             ),
-            Button(
-                hx_delete=f"/api/chats/{chat_id}/messages/{msg.id}",
-                hx_confirm="Are you sure you want to delete this question and its paired AI response?",
-                hx_target=f"#turn-{msg.id}",
-                hx_swap="outerHTML",
-                title="Delete question and response",
-                cls="px-1.5 py-1 bg-base-200 hover:bg-rose-100 dark:hover:bg-rose-950/60 border border-base-300 rounded-lg text-slate-500 hover:text-rose-700 font-medium text-[11px] shadow-2xs hover:shadow-xs transition-all cursor-pointer flex items-center",
-            )(
-                Span("🗑️", cls="text-[10px]"),
-            ),
+            Div(
+                cls="bg-blue-600 text-white rounded-2xl rounded-tr-xs px-4 py-2.5 shadow-sm max-w-xl text-sm leading-relaxed whitespace-pre-wrap break-words font-normal"
+            )(msg.content.strip()),
         ),
-        Div(
-            cls="bg-blue-600 text-white rounded-2xl rounded-tr-xs px-4 py-2.5 shadow-sm max-w-xl text-sm leading-relaxed whitespace-pre-wrap break-words font-normal"
-        )(msg.content.strip()),
         Div(
             cls="w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 flex-shrink-0 flex items-center justify-center font-bold text-[10px] shadow-sm mt-0.5"
         )("YOU"),
@@ -700,26 +702,32 @@ def AssistantMessageBubble(msg: ChatMessageRecord, chat_id: str, cls: Optional[s
         Div(
             cls="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm min-w-0 space-y-3 relative",
         )(
-            Div(cls="absolute top-3 right-3 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity flex items-center gap-1")(
-                Button(
-                    hx_get=f"/api/chats/{chat_id}/assistant-messages/{msg.id}/edit-form",
-                    hx_target=f"#assistant-bubble-{msg.id}",
-                    hx_swap="outerHTML",
-                    title="Edit AI response",
-                    cls="px-2 py-1 bg-base-200 hover:bg-base-300 border border-base-300 rounded-lg text-slate-600 dark:text-slate-300 font-medium text-[11px] shadow-2xs hover:shadow-xs transition-all cursor-pointer flex items-center gap-1",
-                )(
-                    Span("✏️", cls="text-[10px]"),
-                    Span("Edit"),
+            Div(cls="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800/80 -mt-1")(
+                Div(cls="flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400 font-mono")(
+                    Span("🤖", cls="text-xs"),
+                    Span("AI Response"),
                 ),
-                Button(
-                    hx_delete=f"/api/chats/{chat_id}/messages/{msg.id}",
-                    hx_confirm="Are you sure you want to delete this AI response?",
-                    hx_target=f"#assistant-bubble-{msg.id}",
-                    hx_swap="outerHTML",
-                    title="Delete response",
-                    cls="px-1.5 py-1 bg-base-200 hover:bg-rose-100 dark:hover:bg-rose-950/60 border border-base-300 rounded-lg text-slate-500 hover:text-rose-700 font-medium text-[11px] shadow-2xs hover:shadow-xs transition-all cursor-pointer flex items-center",
-                )(
-                    Span("🗑️", cls="text-[10px]"),
+                Div(cls="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity")(
+                    Button(
+                        hx_get=f"/api/chats/{chat_id}/assistant-messages/{msg.id}/edit-form",
+                        hx_target=f"#assistant-bubble-{msg.id}",
+                        hx_swap="outerHTML",
+                        title="Edit AI response",
+                        cls="px-2 py-1 bg-base-200 hover:bg-base-300 border border-base-300 rounded-lg text-slate-600 dark:text-slate-300 font-medium text-[11px] shadow-2xs hover:shadow-xs transition-all cursor-pointer flex items-center gap-1",
+                    )(
+                        Span("✏️", cls="text-[10px]"),
+                        Span("Edit"),
+                    ),
+                    Button(
+                        hx_delete=f"/api/chats/{chat_id}/messages/{msg.id}",
+                        hx_confirm="Are you sure you want to delete this AI response?",
+                        hx_target=f"#assistant-bubble-{msg.id}",
+                        hx_swap="outerHTML",
+                        title="Delete response",
+                        cls="px-1.5 py-1 bg-base-200 hover:bg-rose-100 dark:hover:bg-rose-950/60 border border-base-300 rounded-lg text-slate-500 hover:text-rose-700 font-medium text-[11px] shadow-2xs hover:shadow-xs transition-all cursor-pointer flex items-center",
+                    )(
+                        Span("🗑️", cls="text-[10px]"),
+                    ),
                 ),
             ),
             Div(cls="prose prose-sm max-w-none text-slate-800 dark:text-slate-100 leading-relaxed font-normal")(

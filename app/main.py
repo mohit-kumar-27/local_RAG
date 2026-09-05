@@ -389,7 +389,7 @@ async def post_edit_message(
         Div(cls="w-8 h-8 rounded-full bg-slate-800 dark:bg-slate-700 text-white flex-shrink-0 flex items-center justify-center font-black font-mono text-[11px] shadow-sm mt-0.5")("AI"),
         Div(
             id=f"response-box-{stream_id}",
-            cls="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm min-w-0 space-y-3",
+            cls="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm min-w-0 space-y-3 relative",
         )(
             Div(cls="flex items-center space-x-2.5 text-xs text-slate-600 dark:text-slate-400 font-medium")(
                 Div(cls="animate-spin h-4 w-4 border-2 border-blue-600 border-t-transparent rounded-full"),
@@ -639,11 +639,21 @@ async def get_chat_stream(
                 html_body = mistletoe.markdown(accumulated_response)
                 formatted_body = format_inline_citations(html_body)
 
-                streaming_element = Div(
+                streaming_element = Div(cls="space-y-3")(
+                    Div(cls="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800/80 -mt-1")(
+                        Div(cls="flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400 font-mono")(
+                            Span("🤖", cls="text-xs"),
+                            Span("AI Response"),
+                        ),
+                        Div(cls="flex items-center gap-1.5 text-[11px] text-blue-600 dark:text-blue-400 font-mono font-medium")(
+                            Div(cls="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse"),
+                            Span("Generating..."),
+                        ),
+                    ),
                     Div(cls="prose prose-sm max-w-none text-slate-800 dark:text-slate-100 leading-relaxed font-normal")(
                         NotStr(formatted_body),
                         Span(cls="inline-block w-2 h-4 ml-1 bg-blue-600 animate-pulse align-middle"),
-                    )
+                    ),
                 )
                 yield sse_message(streaming_element)
 
@@ -662,29 +672,35 @@ async def get_chat_stream(
             formatted_final_body = format_inline_citations(final_html_body)
             citations_component = CitationDrawer(retrieved_docs)
 
-            final_element = Div(
-                Div(cls="absolute top-3 right-3 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity flex items-center gap-1")(
-                    Button(
-                        hx_get=f"/api/chats/{chat_id}/assistant-messages/{asst_id}/edit-form",
-                        hx_target=f"#assistant-bubble-{asst_id}",
-                        hx_swap="outerHTML",
-                        title="Edit AI response",
-                        cls="px-2 py-1 bg-base-200 hover:bg-base-300 border border-base-300 rounded-lg text-slate-600 dark:text-slate-300 font-medium text-[11px] shadow-2xs hover:shadow-xs transition-all cursor-pointer flex items-center gap-1",
-                    )(
-                        Span("✏️", cls="text-[10px]"),
-                        Span("Edit"),
+            final_element = Div(cls="space-y-3")(
+                Div(cls="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800/80 -mt-1")(
+                    Div(cls="flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400 font-mono")(
+                        Span("🤖", cls="text-xs"),
+                        Span("AI Response"),
                     ),
-                    Button(
-                        hx_delete=f"/api/chats/{chat_id}/messages/{asst_id}",
-                        hx_confirm="Are you sure you want to delete this AI response?",
-                        hx_target=f"#assistant-bubble-{asst_id}",
-                        hx_swap="outerHTML",
-                        title="Delete response",
-                        cls="px-1.5 py-1 bg-base-200 hover:bg-rose-100 dark:hover:bg-rose-950/60 border border-base-300 rounded-lg text-slate-500 hover:text-rose-700 font-medium text-[11px] shadow-2xs hover:shadow-xs transition-all cursor-pointer flex items-center",
-                    )(
-                        Span("🗑️", cls="text-[10px]"),
-                    ),
-                ) if chat_id else None,
+                    Div(cls="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity")(
+                        Button(
+                            hx_get=f"/api/chats/{chat_id}/assistant-messages/{asst_id}/edit-form",
+                            hx_target=f"#assistant-bubble-{asst_id}",
+                            hx_swap="outerHTML",
+                            title="Edit AI response",
+                            cls="px-2 py-1 bg-base-200 hover:bg-base-300 border border-base-300 rounded-lg text-slate-600 dark:text-slate-300 font-medium text-[11px] shadow-2xs hover:shadow-xs transition-all cursor-pointer flex items-center gap-1",
+                        )(
+                            Span("✏️", cls="text-[10px]"),
+                            Span("Edit"),
+                        ),
+                        Button(
+                            hx_delete=f"/api/chats/{chat_id}/messages/{asst_id}",
+                            hx_confirm="Are you sure you want to delete this AI response?",
+                            hx_target=f"#assistant-bubble-{asst_id}",
+                            hx_swap="outerHTML",
+                            title="Delete response",
+                            cls="px-1.5 py-1 bg-base-200 hover:bg-rose-100 dark:hover:bg-rose-950/60 border border-base-300 rounded-lg text-slate-500 hover:text-rose-700 font-medium text-[11px] shadow-2xs hover:shadow-xs transition-all cursor-pointer flex items-center",
+                        )(
+                            Span("🗑️", cls="text-[10px]"),
+                        ),
+                    ) if chat_id else None,
+                ),
                 Div(cls="prose prose-sm max-w-none text-slate-800 dark:text-slate-100 leading-relaxed font-normal")(
                     NotStr(formatted_final_body)
                 ),
