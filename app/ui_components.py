@@ -3,17 +3,21 @@ MonsterUI & FastHTML FT components for the Local RAG System.
 All components are pure Python FT trees—no Jinja2 templates are used.
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import datetime
 import html
+import re
+from typing import Any, Dict, List, Optional, Tuple
 
 from fasthtml.common import (
     A, Button, Details, Div, Form, H1, H2, H3, H4, Input, Label, Li,
-    Option, P, Pre, Select, Span, Summary, Textarea, Ul, to_xml
+    NotStr, Option, P, Pre, Select, Span, Summary, Textarea, Ul, to_xml
 )
+import mistletoe
 import monsterui.all as ui
 
 from config import LOW_RAM_MODE, get_active_llm_model
 from ingestion.base import Document
+from rag.duckdb_store import ChatMessageRecord, ChatSession
 
 
 def AppHeader(ollama_connected: bool = True, current_model: str = "", active_tab: str = "chat"):
@@ -444,10 +448,348 @@ def CitationDrawer(documents_with_scores: List[Tuple[Document, float]]):
     )
 
 
-def ChatTab():
-    """Tab 2: Ask Chatbot view with message timeline, query input, filter bar, and citations."""
-    return Div(cls="max-w-5xl w-full mx-auto p-4 md:px-6 md:py-4 flex flex-col min-h-full")(
-        # Filter row - sticky at top with subtle backdrop blur
+def format_relative_time(dt: Any) -> str:
+    """Formats a datetime into a friendly relative timestamp."""
+    if not dt:
+        return ""
+    if isinstance(dt, str):
+        try:
+            dt = datetime.fromisoformat(dt.replace(" ", "T"))
+        except Exception:
+            return dt[:10]
+    now = datetime.now(dt.tzinfo) if getattr(dt, "tzinfo", None) else datetime.now()
+    diff = now - dt
+    secs = int(diff.total_seconds())
+    if secs < 60:
+        return "Just now"
+    mins = secs // 60
+    if mins < 60:
+        return f"{mins}m ago"
+    hours = mins // 60
+    if hours < 24:
+        return f"{hours}h ago"
+    days = hours // 24
+    if days < 7:
+        return f"{days}d ago"
+    return dt.strftime("%b %d")
+
+
+def format_inline_citations(html_text: str) -> str:
+    """Styles [Source: ...] inline citations as clean, readable high-contrast badges."""
+    def _replacer(match):
+        raw_label = match.group(1).strip()
+        escaped_label = html.escape(raw_label)
+        return (
+            f'<span class="inline-flex items-center gap-1 px-2 py-0.5 mx-1 my-0.5 rounded-md text-[11px] font-mono font-bold '
+            f'bg-blue-100 text-blue-900 border border-blue-300 dark:bg-blue-950/80 dark:text-blue-200 dark:border-blue-700 '
+            f'shadow-2xs">📌 {escaped_label}</span>'
+        )
+    return re.sub(r'\[Source:\s*([^\]]+)\]', _replacer, html_text)
+
+
+def serialize_citations(documents_with_scores: List[Tuple[Document, float]]) -> List[Dict[str, Any]]:
+    """Serializes retrieved documents and their relevance scores to JSON-compatible dicts."""
+    serialized = []
+    for doc, score in documents_with_scores:
+        serialized.append(
+            {
+                "id": doc.id,
+                "content": doc.content,
+                "source_url": doc.source_url,
+                "file_path": doc.file_path,
+                "doc_type": doc.doc_type,
+                "sprint_id": doc.sprint_id,
+                "work_item_id": doc.work_item_id,
+                "score": score,
+            }
+        )
+    return serialized
+
+
+def deserialize_citations(citations_data: Optional[List[Dict[str, Any]]]) -> List[Tuple[Document, float]]:
+    """Reconstructs Document objects and scores from stored JSON."""
+    if not citations_data:
+        return []
+    docs_with_scores = []
+    for item in citations_data:
+        doc = Document(
+            id=item.get("id", ""),
+            content=item.get("content", ""),
+            source_url=item.get("source_url", ""),
+            file_path=item.get("file_path"),
+            doc_type=item.get("doc_type", "code"),
+            sprint_id=item.get("sprint_id"),
+            work_item_id=item.get("work_item_id"),
+        )
+        score = float(item.get("score", 0.0))
+        docs_with_scores.append((doc, score))
+    return docs_with_scores
+
+
+def ChatSidebar(chats: List[ChatSession], active_chat_id: Optional[str] = None):
+    """Sidebar listing persisted chat sessions with New Chat button and delete controls."""
+    chat_items = []
+    for chat in chats:
+        is_active = (chat.id == active_chat_id)
+        active_cls = (
+            "bg-primary/10 border-primary/40 text-primary dark:text-blue-400 font-semibold shadow-2xs"
+            if is_active
+            else "bg-base-100 hover:bg-base-200/80 border-base-300 text-base-content/80 hover:text-base-content"
+        )
+        rel_time = format_relative_time(chat.updated_at)
+
+        item = Div(
+            id=f"chat-item-{chat.id}",
+            cls=f"group flex items-center justify-between p-2.5 rounded-xl border transition-all duration-150 text-xs {active_cls}",
+        )(
+            A(
+                href=f"/?tab=chat&chat_id={chat.id}",
+                hx_get=f"/api/chats/{chat.id}",
+                hx_target="#chat-main-area",
+                hx_push_url=f"/?tab=chat&chat_id={chat.id}",
+                cls="flex-1 min-w-0 pr-2 flex flex-col gap-0.5 cursor-pointer",
+            )(
+                Span(cls="truncate text-xs font-medium tracking-tight")(chat.title or "Untitled Chat"),
+                Span(cls="text-[10px] text-base-content/50 font-mono")(rel_time),
+            ),
+            Button(
+                hx_delete=f"/api/chats/{chat.id}?active_chat_id={active_chat_id or ''}",
+                hx_confirm="Are you sure you want to delete this entire chat session and all its messages?",
+                hx_target="#chat-tab-container",
+                title="Delete chat session",
+                cls="opacity-0 group-hover:opacity-100 focus:opacity-100 p-1 text-slate-400 hover:text-rose-600 rounded-md hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-all cursor-pointer",
+            )(
+                Span("🗑️", cls="text-xs")
+            ),
+        )
+        chat_items.append(item)
+
+    empty_placeholder = (
+        Div(cls="p-4 text-center text-xs text-base-content/50 space-y-1")(
+            Div("💬", cls="text-lg"),
+            P("No saved chats yet."),
+            P("Start a conversation!"),
+        )
+        if not chat_items
+        else None
+    )
+
+    return Div(
+        id="chat-sidebar",
+        cls="w-full md:w-64 lg:w-72 flex-shrink-0 bg-base-100 border-r border-base-300 flex flex-col h-auto md:h-full min-h-0",
+    )(
+        Div(cls="p-3 border-b border-base-300 flex items-center justify-between gap-2 flex-shrink-0 bg-base-100/90")(
+            Span(cls="text-xs font-bold uppercase tracking-wider text-base-content/70 flex items-center gap-1.5")(
+                Span("💬"),
+                "Sessions",
+            ),
+            A(
+                href="/?tab=chat",
+                hx_get="/api/chats/new",
+                hx_target="#chat-main-area",
+                hx_push_url="/?tab=chat",
+                cls="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-primary bg-primary/10 hover:bg-primary/20 border border-primary/20 rounded-lg shadow-2xs transition-all active:scale-95 cursor-pointer",
+            )(
+                Span("+", cls="font-bold text-sm"),
+                Span("New Chat"),
+            ),
+        ),
+        Div(
+            id="chat-sidebar-list",
+            cls="flex-1 overflow-y-auto p-2.5 space-y-1.5 min-h-0",
+        )(
+            *chat_items,
+            empty_placeholder,
+        ),
+    )
+
+
+def UserMessageBubble(msg: ChatMessageRecord, chat_id: str):
+    """Renders a user message bubble with inline Edit and Delete action controls."""
+    return Div(
+        id=f"user-bubble-container-{msg.id}",
+        cls="group flex items-start justify-end gap-2.5 w-full my-1.5",
+    )(
+        Div(
+            cls="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity self-center text-xs"
+        )(
+            Button(
+                hx_get=f"/api/chats/{chat_id}/messages/{msg.id}/edit-form",
+                hx_target=f"#user-bubble-container-{msg.id}",
+                hx_swap="outerHTML",
+                title="Edit message",
+                cls="px-2 py-1 bg-base-200 hover:bg-base-300 border border-base-300 rounded-lg text-slate-600 dark:text-slate-300 font-medium text-[11px] shadow-2xs hover:shadow-xs transition-all cursor-pointer flex items-center gap-1",
+            )(
+                Span("✏️", cls="text-[10px]"),
+                Span("Edit"),
+            ),
+            Button(
+                hx_delete=f"/api/chats/{chat_id}/messages/{msg.id}",
+                hx_confirm="Are you sure you want to delete this question and its paired AI response?",
+                hx_target=f"#turn-{msg.id}",
+                hx_swap="outerHTML",
+                title="Delete question and response",
+                cls="px-1.5 py-1 bg-base-200 hover:bg-rose-100 dark:hover:bg-rose-950/60 border border-base-300 rounded-lg text-slate-500 hover:text-rose-700 font-medium text-[11px] shadow-2xs hover:shadow-xs transition-all cursor-pointer flex items-center",
+            )(
+                Span("🗑️", cls="text-[10px]"),
+            ),
+        ),
+        Div(
+            cls="bg-blue-600 text-white rounded-2xl rounded-tr-xs px-4 py-2.5 shadow-sm max-w-xl text-sm leading-relaxed whitespace-pre-wrap break-words font-normal"
+        )(msg.content.strip()),
+        Div(
+            cls="w-7 h-7 rounded-full bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 flex-shrink-0 flex items-center justify-center font-bold text-[10px] shadow-sm mt-0.5"
+        )("YOU"),
+    )
+
+
+def AssistantMessageBubble(msg: ChatMessageRecord, chat_id: str):
+    """Renders an assistant message bubble with formatted markdown, collapsible citations, and delete control."""
+    raw_html = mistletoe.markdown(msg.content)
+    formatted_html = format_inline_citations(raw_html)
+
+    docs_with_scores = deserialize_citations(msg.citations)
+    citations_component = CitationDrawer(docs_with_scores) if docs_with_scores else None
+
+    return Div(
+        id=f"assistant-bubble-{msg.id}",
+        cls="group flex items-start space-x-3 w-full my-2",
+    )(
+        Div(
+            cls="w-8 h-8 rounded-full bg-slate-800 dark:bg-slate-700 text-white flex-shrink-0 flex items-center justify-center font-black font-mono text-[11px] shadow-sm mt-0.5"
+        )("AI"),
+        Div(
+            cls="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm min-w-0 space-y-3 relative",
+        )(
+            Div(cls="absolute top-3 right-3 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity")(
+                Button(
+                    hx_delete=f"/api/chats/{chat_id}/messages/{msg.id}",
+                    hx_confirm="Are you sure you want to delete this AI response?",
+                    hx_target=f"#assistant-bubble-{msg.id}",
+                    hx_swap="outerHTML",
+                    title="Delete response",
+                    cls="p-1 text-slate-400 hover:text-rose-600 rounded-md hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-all cursor-pointer",
+                )(
+                    Span("🗑️", cls="text-xs")
+                ),
+            ),
+            Div(cls="prose prose-sm max-w-none text-slate-800 dark:text-slate-100 leading-relaxed font-normal")(
+                NotStr(formatted_html)
+            ),
+            citations_component,
+        ),
+    )
+
+
+def ChatMessageTurn(user_msg: ChatMessageRecord, assistant_msg: Optional[ChatMessageRecord], chat_id: str):
+    """Groups a paired user prompt and assistant reply into a single turn container."""
+    return Div(
+        id=f"turn-{user_msg.id}",
+        cls="space-y-3",
+    )(
+        UserMessageBubble(user_msg, chat_id),
+        AssistantMessageBubble(assistant_msg, chat_id) if assistant_msg else None,
+    )
+
+
+def EditMessageForm(chat_id: str, message_id: str, current_content: str):
+    """Inline edit form for updating an existing user prompt."""
+    return Div(
+        id=f"user-bubble-container-{message_id}",
+        cls="w-full my-2 flex justify-end",
+    )(
+        Div(
+            cls="w-full max-w-xl bg-base-100 border-2 border-primary/50 rounded-2xl p-4 shadow-md space-y-3"
+        )(
+            Div(cls="flex items-center justify-between text-xs font-semibold text-base-content/80")(
+                Span(cls="flex items-center gap-1.5")(
+                    Span("✏️"),
+                    Span("Edit Prompt"),
+                ),
+                Span(cls="text-[10px] text-amber-600 dark:text-amber-400 font-mono bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800")(
+                    "⚠️ Submitting prunes later turns"
+                ),
+            ),
+            Form(
+                hx_post=f"/api/chats/{chat_id}/messages/{message_id}/edit",
+                hx_target="#chat-main-area",
+                hx_include="#doc-type-filter, #sprint-filter",
+                cls="space-y-2.5",
+            )(
+                Textarea(
+                    name="new_content",
+                    rows=2,
+                    required=True,
+                    cls="uk-textarea w-full text-sm rounded-xl border border-base-300 p-2.5 focus:border-primary focus:ring-1 focus:ring-primary/30 text-base-content",
+                )(current_content.strip()),
+                Div(cls="flex items-center justify-end gap-2 pt-1")(
+                    Button(
+                        type="button",
+                        hx_get=f"/api/chats/{chat_id}/messages/{message_id}/cancel-edit",
+                        hx_target=f"#user-bubble-container-{message_id}",
+                        hx_swap="outerHTML",
+                        cls="uk-button uk-button-default uk-button-xs rounded-lg cursor-pointer",
+                    )("Cancel"),
+                    Button(
+                        type="submit",
+                        cls="uk-button uk-button-primary uk-button-xs rounded-lg cursor-pointer shadow-sm",
+                    )("Save & Regenerate"),
+                ),
+            ),
+        )
+    )
+
+
+def WelcomeMessage():
+    """Default placeholder bubble shown in an empty conversation."""
+    return Div(cls="flex items-start space-x-3")(
+        Div(
+            cls="w-9 h-9 rounded-full bg-primary text-primary-content flex-shrink-0 flex items-center justify-center font-bold text-xs shadow-sm"
+        )("AI"),
+        Div(cls="flex-1 bg-base-100 border border-base-300 rounded-2xl p-5 shadow-sm space-y-2")(
+            P(cls="text-sm text-base-content font-medium")(
+                "Hello! I am your strictly local, confidential RAG assistant."
+            ),
+            P(cls="text-xs text-base-content/70 leading-relaxed")(
+                "I answer questions using only the codebases, Azure DevOps work items, and Confluence documentation indexed into your local DuckDB database. "
+                "Every statement is grounded in local context with explicit inline citations."
+            ),
+            Div(cls="pt-2 flex flex-wrap gap-2")(
+                Span(cls="text-[11px] bg-base-200 text-base-content/70 px-2.5 py-1 rounded-md border border-base-300")(
+                    "💡 Example: 'How does authentication work in our services?'"
+                ),
+                Span(cls="text-[11px] bg-base-200 text-base-content/70 px-2.5 py-1 rounded-md border border-base-300")(
+                    "💡 Example: 'What bugs are open in Sprint 42?'"
+                ),
+            ),
+        ),
+    )
+
+
+def ChatMainArea(messages: Optional[List[ChatMessageRecord]] = None, active_chat_id: Optional[str] = None):
+    """
+    Main conversation area containing scope/sprint filters, message history timeline,
+    and sticky prompt input bar.
+    """
+    turns = []
+    if messages:
+        i = 0
+        while i < len(messages):
+            msg = messages[i]
+            if msg.role == "user":
+                next_msg = messages[i + 1] if (i + 1 < len(messages) and messages[i + 1].role == "assistant") else None
+                turns.append(ChatMessageTurn(msg, next_msg, active_chat_id or msg.chat_id))
+                i += 2 if next_msg else 1
+            else:
+                turns.append(AssistantMessageBubble(msg, active_chat_id or msg.chat_id))
+                i += 1
+
+    content_children = turns if turns else [WelcomeMessage()]
+
+    return Div(
+        id="chat-main-area",
+        cls="flex-1 flex flex-col min-h-0 h-full p-4 md:px-6 md:py-4 overflow-y-auto scroll-smooth",
+    )(
         Div(cls="sticky top-0 z-10 bg-base-200/95 backdrop-blur-sm pt-1 pb-3 mb-2 flex-shrink-0")(
             Div(cls="flex flex-wrap items-center justify-between gap-3 p-3 bg-base-100 border border-base-300 rounded-xl shadow-sm text-xs w-full")(
                 Div(cls="flex items-center gap-2")(
@@ -478,55 +820,34 @@ def ChatTab():
             ),
         ),
 
-        # Chat history container - expands naturally in scrollable tab-content
         Div(
             id="chat-history",
             cls="space-y-4 pb-6 flex-1",
         )(
-            # Welcome bubble
-            Div(cls="flex items-start space-x-3")(
-                Div(cls="w-9 h-9 rounded-full bg-primary text-primary-content flex-shrink-0 flex items-center justify-center font-bold text-xs shadow-sm")("AI"),
-                Div(cls="flex-1 bg-base-100 border border-base-300 rounded-2xl p-5 shadow-sm space-y-2")(
-                    P(cls="text-sm text-base-content font-medium")(
-                        "Hello! I am your strictly local, confidential RAG assistant."
-                    ),
-                    P(cls="text-xs text-base-content/70 leading-relaxed")(
-                        "I answer questions using only the codebases, Azure DevOps work items, and Confluence documentation indexed into your local DuckDB database. "
-                        "Every statement is grounded in local context with explicit inline citations."
-                    ),
-                    Div(cls="pt-2 flex flex-wrap gap-2")(
-                        Span(cls="text-[11px] bg-base-200 text-base-content/70 px-2.5 py-1 rounded-md border border-base-300")(
-                            "💡 Example: 'How does authentication work in our services?'"
-                        ),
-                        Span(cls="text-[11px] bg-base-200 text-base-content/70 px-2.5 py-1 rounded-md border border-base-300")(
-                            "💡 Example: 'What bugs are open in Sprint 42?'"
-                        ),
-                    ),
-                ),
-            ),
+            *content_children
         ),
 
-        # Chat input container - sticky at bottom with sleek compact prompt box
         Div(cls="sticky bottom-0 z-20 bg-base-200/95 backdrop-blur-md pt-2 pb-4 flex-shrink-0")(
             Form(
                 id="chat-form",
                 hx_post="/api/chat",
                 hx_target="#chat-history",
                 hx_swap="beforeend",
-                hx_include="#doc-type-filter, #sprint-filter",
+                hx_include="#doc-type-filter, #sprint-filter, #active-chat-id-input",
                 hx_on__after_request="""
                     const qInput = document.getElementById('query-input');
                     if (qInput) {
                         qInput.value = '';
                         qInput.style.height = '44px';
                     }
-                    const tabContent = document.getElementById('tab-content');
-                    if (tabContent) {
-                        tabContent.scrollTop = tabContent.scrollHeight;
+                    const mainArea = document.getElementById('chat-main-area');
+                    if (mainArea) {
+                        mainArea.scrollTop = mainArea.scrollHeight;
                     }
                 """,
                 cls="w-full bg-base-100 border border-base-300 rounded-2xl shadow-md p-2.5 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-all",
             )(
+                Input(type="hidden", id="active-chat-id-input", name="chat_id", value=active_chat_id or ""),
                 Div(cls="flex flex-col gap-1.5")(
                     Textarea(
                         id="query-input",
@@ -556,7 +877,7 @@ def ChatTab():
                         Div(cls="flex items-center gap-2")(
                             Button(
                                 type="submit",
-                                cls="uk-button uk-button-primary uk-button-sm rounded-xl px-4 py-1 flex items-center gap-1.5 font-medium shadow-sm hover:shadow",
+                                cls="uk-button uk-button-primary uk-button-sm rounded-xl px-4 py-1 flex items-center gap-1.5 font-medium shadow-sm hover:shadow cursor-pointer",
                             )(
                                 Span("Ask"),
                                 Span(cls="text-xs font-bold")("→"),
@@ -566,4 +887,15 @@ def ChatTab():
                 ),
             ),
         ),
+    )
+
+
+def ChatTab(chats: Optional[List[ChatSession]] = None, active_chat_id: Optional[str] = None, messages: Optional[List[ChatMessageRecord]] = None):
+    """Tab 2: Ask Chatbot view with responsive session sidebar and conversation main area."""
+    return Div(
+        id="chat-tab-container",
+        cls="flex flex-col md:flex-row h-full min-h-full w-full",
+    )(
+        ChatSidebar(chats or [], active_chat_id=active_chat_id),
+        ChatMainArea(messages=messages, active_chat_id=active_chat_id),
     )

@@ -9,15 +9,35 @@ Features:
 - Strict memory capping via PRAGMA max_memory='2GB'
 """
 
+from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
+import threading
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import duckdb
 
 from config import DUCKDB_PATH, EMBED_DIM, MAX_DUCKDB_MEMORY
 from ingestion.base import Document
+
+
+@dataclass
+class ChatSession:
+    id: str
+    title: str
+    created_at: Any
+    updated_at: Any
+
+
+@dataclass
+class ChatMessageRecord:
+    id: str
+    chat_id: str
+    role: str
+    content: str
+    citations: Optional[List[Dict[str, Any]]]
+    created_at: Any
 
 
 class DuckDBStore:
@@ -30,6 +50,7 @@ class DuckDBStore:
         self.memory_limit = memory_limit
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._fts_indexed = False
+        self._lock = threading.RLock()
 
         # Initialize schema
         self._init_db()
@@ -49,30 +70,56 @@ class DuckDBStore:
         return conn
 
     def _init_db(self):
-        """Creates the documents table if it doesn't already exist."""
-        with self._get_connection() as conn:
-            conn.execute(
-                f"""
-                CREATE TABLE IF NOT EXISTS documents (
-                    id VARCHAR PRIMARY KEY,
-                    content TEXT,
-                    embedding FLOAT[{EMBED_DIM}],
-                    source_url VARCHAR,
-                    file_path VARCHAR,
-                    doc_type VARCHAR,
-                    sprint_id VARCHAR,
-                    work_item_id VARCHAR,
-                    author VARCHAR,
-                    commit_hash VARCHAR,
-                    content_hash VARCHAR,
-                    created_at TIMESTAMP,
-                    metadata_json TEXT
-                );
-                """
-            )
-            # Create secondary index on content_hash for high-speed deduplication checks
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_content_hash ON documents (content_hash);")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_doc_type ON documents (doc_type);")
+        """Creates documents, chats, and chat_messages tables if they do not already exist."""
+        with self._lock:
+            with self._get_connection() as conn:
+                conn.execute(
+                    f"""
+                    CREATE TABLE IF NOT EXISTS documents (
+                        id VARCHAR PRIMARY KEY,
+                        content TEXT,
+                        embedding FLOAT[{EMBED_DIM}],
+                        source_url VARCHAR,
+                        file_path VARCHAR,
+                        doc_type VARCHAR,
+                        sprint_id VARCHAR,
+                        work_item_id VARCHAR,
+                        author VARCHAR,
+                        commit_hash VARCHAR,
+                        content_hash VARCHAR,
+                        created_at TIMESTAMP,
+                        metadata_json TEXT
+                    );
+                    """
+                )
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_content_hash ON documents (content_hash);")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_doc_type ON documents (doc_type);")
+
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS chats (
+                        id VARCHAR PRIMARY KEY,
+                        title VARCHAR,
+                        created_at TIMESTAMP,
+                        updated_at TIMESTAMP
+                    );
+                    """
+                )
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_chats_updated_at ON chats (updated_at DESC);")
+
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS chat_messages (
+                        id VARCHAR PRIMARY KEY,
+                        chat_id VARCHAR,
+                        role VARCHAR,
+                        content TEXT,
+                        citations JSON,
+                        created_at TIMESTAMP
+                    );
+                    """
+                )
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_messages_chat_id ON chat_messages (chat_id);")
 
     def filter_existing_hashes(self, content_hashes: List[str]) -> Set[str]:
         """
@@ -98,83 +145,86 @@ class DuckDBStore:
         if not docs:
             return 0
 
-        # Filter out duplicates
-        all_hashes = [d.content_hash for d in docs]
-        existing_hashes = self.filter_existing_hashes(all_hashes)
-        new_docs = [d for d in docs if d.content_hash not in existing_hashes]
+        with self._lock:
+            # Filter out duplicates
+            all_hashes = [d.content_hash for d in docs]
+            existing_hashes = self.filter_existing_hashes(all_hashes)
+            new_docs = [d for d in docs if d.content_hash not in existing_hashes]
 
-        if not new_docs:
-            return 0
+            if not new_docs:
+                return 0
 
-        with self._get_connection() as conn:
-            insert_sql = f"""
-            INSERT INTO documents (
-                id, content, embedding, source_url, file_path, doc_type,
-                sprint_id, work_item_id, author, commit_hash, content_hash,
-                created_at, metadata_json
-            ) VALUES (?, ?, ?::FLOAT[{EMBED_DIM}], ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-            """
-            data_tuples = []
-            for d in new_docs:
-                if d.embedding is None:
-                    raise ValueError(f"Document {d.id} has no embedding.")
-                data_tuples.append(
-                    (
-                        d.id,
-                        d.content,
-                        d.embedding,
-                        d.source_url,
-                        d.file_path,
-                        d.doc_type,
-                        d.sprint_id,
-                        d.work_item_id,
-                        d.author,
-                        d.commit_hash,
-                        d.content_hash,
-                        d.created_at,
-                        json.dumps(d.metadata),
+            with self._get_connection() as conn:
+                insert_sql = f"""
+                INSERT INTO documents (
+                    id, content, embedding, source_url, file_path, doc_type,
+                    sprint_id, work_item_id, author, commit_hash, content_hash,
+                    created_at, metadata_json
+                ) VALUES (?, ?, ?::FLOAT[{EMBED_DIM}], ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                """
+                data_tuples = []
+                for d in new_docs:
+                    if d.embedding is None:
+                        raise ValueError(f"Document {d.id} has no embedding.")
+                    data_tuples.append(
+                        (
+                            d.id,
+                            d.content,
+                            d.embedding,
+                            d.source_url,
+                            d.file_path,
+                            d.doc_type,
+                            d.sprint_id,
+                            d.work_item_id,
+                            d.author,
+                            d.commit_hash,
+                            d.content_hash,
+                            d.created_at,
+                            json.dumps(d.metadata),
+                        )
                     )
-                )
 
-            conn.executemany(insert_sql, data_tuples)
+                conn.executemany(insert_sql, data_tuples)
 
-        # Invalidate or rebuild FTS index
-        self.rebuild_fts_index()
-        return len(new_docs)
+            # Invalidate or rebuild FTS index
+            self.rebuild_fts_index()
+            return len(new_docs)
 
     def delete_documents_by_file(self, file_path: str, source_prefix: Optional[str] = None) -> int:
         """
         Deletes existing chunks for a specific file path.
         Used during incremental re-indexing when a file has been modified or deleted.
         """
-        with self._get_connection() as conn:
-            if source_prefix:
-                sql = "DELETE FROM documents WHERE file_path = ? AND source_url LIKE ?;"
-                cursor = conn.execute(sql, [file_path, f"%{source_prefix}%"])
-            else:
-                sql = "DELETE FROM documents WHERE file_path = ?;"
-                cursor = conn.execute(sql, [file_path])
-            deleted_count = cursor.fetchall()  # In duckdb, DELETE returns count or fetchall
-            # Let's rebuild FTS if rows were deleted
-            self.rebuild_fts_index()
-            return 1
+        with self._lock:
+            with self._get_connection() as conn:
+                if source_prefix:
+                    sql = "DELETE FROM documents WHERE file_path = ? AND source_url LIKE ?;"
+                    cursor = conn.execute(sql, [file_path, f"%{source_prefix}%"])
+                else:
+                    sql = "DELETE FROM documents WHERE file_path = ?;"
+                    cursor = conn.execute(sql, [file_path])
+                deleted_count = cursor.fetchall()
+                self.rebuild_fts_index()
+                return 1
 
     def delete_documents_by_work_item(self, work_item_id: str) -> int:
         """
         Deletes existing chunks for an ADO work item or Confluence page ID.
         Used when an issue/page has been updated and re-indexed.
         """
-        with self._get_connection() as conn:
-            conn.execute("DELETE FROM documents WHERE work_item_id = ?;", [str(work_item_id)])
-            self.rebuild_fts_index()
-            return 1
+        with self._lock:
+            with self._get_connection() as conn:
+                conn.execute("DELETE FROM documents WHERE work_item_id = ?;", [str(work_item_id)])
+                self.rebuild_fts_index()
+                return 1
 
     def delete_documents_by_source(self, source_url: str) -> int:
         """Deletes all chunks originating from a specific source URL."""
-        with self._get_connection() as conn:
-            conn.execute("DELETE FROM documents WHERE source_url = ?;", [source_url])
-            self.rebuild_fts_index()
-            return 1
+        with self._lock:
+            with self._get_connection() as conn:
+                conn.execute("DELETE FROM documents WHERE source_url = ?;", [source_url])
+                self.rebuild_fts_index()
+                return 1
 
     def rebuild_fts_index(self):
         """Rebuilds the BM25 full-text index across all indexed document contents."""
@@ -393,6 +443,257 @@ class DuckDBStore:
 
     def clear_all(self):
         """Clears all indexed documents from the database."""
+        with self._lock:
+            with self._get_connection() as conn:
+                conn.execute("DELETE FROM documents;")
+            self.rebuild_fts_index()
+
+    # --- Persistent Chat History Management ---
+
+    def create_chat(self, chat_id: str, title: str) -> ChatSession:
+        """Creates and returns a new chat session."""
+        with self._lock:
+            with self._get_connection() as conn:
+                conn.execute(
+                    "INSERT INTO chats (id, title, created_at, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);",
+                    [chat_id, title],
+                )
+                row = conn.execute(
+                    "SELECT id, title, created_at, updated_at FROM chats WHERE id = ?;",
+                    [chat_id],
+                ).fetchone()
+                return ChatSession(id=row[0], title=row[1], created_at=row[2], updated_at=row[3])
+
+    def get_chat(self, chat_id: str) -> Optional[ChatSession]:
+        """Retrieves a chat session by ID."""
         with self._get_connection() as conn:
-            conn.execute("DELETE FROM documents;")
-        self.rebuild_fts_index()
+            row = conn.execute(
+                "SELECT id, title, created_at, updated_at FROM chats WHERE id = ?;",
+                [chat_id],
+            ).fetchone()
+            if not row:
+                return None
+            return ChatSession(id=row[0], title=row[1], created_at=row[2], updated_at=row[3])
+
+    def list_chats(self) -> List[ChatSession]:
+        """Returns all chat sessions ordered by updated_at DESC."""
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT id, title, created_at, updated_at FROM chats ORDER BY updated_at DESC;"
+            ).fetchall()
+            return [ChatSession(id=r[0], title=r[1], created_at=r[2], updated_at=r[3]) for r in rows]
+
+    def update_chat_title(self, chat_id: str, title: str):
+        """Updates the human-readable title of a chat session."""
+        with self._lock:
+            with self._get_connection() as conn:
+                conn.execute(
+                    "UPDATE chats SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?;",
+                    [title, chat_id],
+                )
+
+    def touch_chat(self, chat_id: str):
+        """Refreshes updated_at timestamp on a chat session."""
+        with self._lock:
+            with self._get_connection() as conn:
+                conn.execute(
+                    "UPDATE chats SET updated_at = CURRENT_TIMESTAMP WHERE id = ?;",
+                    [chat_id],
+                )
+
+    def delete_chat(self, chat_id: str) -> bool:
+        """
+        Deletes a chat session and cascades to its messages within a transaction.
+        (DuckDB enforces FKs but disallows ON DELETE CASCADE in DDL).
+        """
+        with self._lock:
+            with self._get_connection() as conn:
+                conn.execute("BEGIN TRANSACTION;")
+                try:
+                    conn.execute("DELETE FROM chat_messages WHERE chat_id = ?;", [chat_id])
+                    conn.execute("DELETE FROM chats WHERE id = ?;", [chat_id])
+                    conn.execute("COMMIT;")
+                    return True
+                except Exception:
+                    conn.execute("ROLLBACK;")
+                    raise
+
+    def add_chat_message(
+        self,
+        message_id: str,
+        chat_id: str,
+        role: str,
+        content: str,
+        citations: Optional[List[Dict[str, Any]]] = None,
+    ) -> ChatMessageRecord:
+        """Inserts a chat message (with optional citations JSON) and updates chat timestamp."""
+        citations_json = json.dumps(citations) if citations else None
+        with self._lock:
+            with self._get_connection() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO chat_messages (id, chat_id, role, content, citations, created_at)
+                    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP);
+                    """,
+                    [message_id, chat_id, role, content, citations_json],
+                )
+                conn.execute("UPDATE chats SET updated_at = CURRENT_TIMESTAMP WHERE id = ?;", [chat_id])
+                row = conn.execute(
+                    "SELECT id, chat_id, role, content, citations, created_at FROM chat_messages WHERE id = ?;",
+                    [message_id],
+                ).fetchone()
+                cits = json.loads(row[4]) if row[4] else None
+                return ChatMessageRecord(
+                    id=row[0],
+                    chat_id=row[1],
+                    role=row[2],
+                    content=row[3],
+                    citations=cits,
+                    created_at=row[5],
+                )
+
+    def get_chat_messages(self, chat_id: str, limit: Optional[int] = None) -> List[ChatMessageRecord]:
+        """
+        Retrieves messages for a chat session in chronological order (created_at ASC).
+        If limit is set, returns the latest N messages chronologically.
+        """
+        with self._get_connection() as conn:
+            if limit:
+                query = """
+                SELECT id, chat_id, role, content, citations, created_at
+                FROM (
+                    SELECT id, chat_id, role, content, citations, created_at
+                    FROM chat_messages
+                    WHERE chat_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                ) sub
+                ORDER BY created_at ASC;
+                """
+                rows = conn.execute(query, [chat_id, limit]).fetchall()
+            else:
+                query = """
+                SELECT id, chat_id, role, content, citations, created_at
+                FROM chat_messages
+                WHERE chat_id = ?
+                ORDER BY created_at ASC;
+                """
+                rows = conn.execute(query, [chat_id]).fetchall()
+
+            results = []
+            for r in rows:
+                cits = json.loads(r[4]) if r[4] else None
+                results.append(
+                    ChatMessageRecord(
+                        id=r[0],
+                        chat_id=r[1],
+                        role=r[2],
+                        content=r[3],
+                        citations=cits,
+                        created_at=r[5],
+                    )
+                )
+            return results
+
+    def get_message(self, message_id: str) -> Optional[ChatMessageRecord]:
+        """Retrieves a single message by ID."""
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT id, chat_id, role, content, citations, created_at FROM chat_messages WHERE id = ?;",
+                [message_id],
+            ).fetchone()
+            if not row:
+                return None
+            cits = json.loads(row[4]) if row[4] else None
+            return ChatMessageRecord(
+                id=row[0],
+                chat_id=row[1],
+                role=row[2],
+                content=row[3],
+                citations=cits,
+                created_at=row[5],
+            )
+
+    def update_message_content(self, message_id: str, new_content: str):
+        """Updates the content of an existing message."""
+        with self._lock:
+            with self._get_connection() as conn:
+                conn.execute(
+                    "UPDATE chat_messages SET content = ? WHERE id = ?;",
+                    [new_content, message_id],
+                )
+                chat_row = conn.execute(
+                    "SELECT chat_id FROM chat_messages WHERE id = ?;",
+                    [message_id],
+                ).fetchone()
+                if chat_row:
+                    conn.execute("UPDATE chats SET updated_at = CURRENT_TIMESTAMP WHERE id = ?;", [chat_row[0]])
+
+    def delete_message(self, message_id: str) -> bool:
+        """Deletes a single message by ID."""
+        with self._lock:
+            with self._get_connection() as conn:
+                conn.execute("DELETE FROM chat_messages WHERE id = ?;", [message_id])
+                return True
+
+    def delete_message_pair(self, chat_id: str, user_message_id: str) -> bool:
+        """
+        Deletes a user message and its paired immediate assistant response (if any)
+        within a single transaction.
+        """
+        with self._lock:
+            with self._get_connection() as conn:
+                conn.execute("BEGIN TRANSACTION;")
+                try:
+                    user_row = conn.execute(
+                        "SELECT created_at FROM chat_messages WHERE id = ? AND chat_id = ? AND role = 'user';",
+                        [user_message_id, chat_id],
+                    ).fetchone()
+                    if not user_row:
+                        conn.execute("ROLLBACK;")
+                        return False
+                    user_time = user_row[0]
+
+                    assistant_row = conn.execute(
+                        """
+                        SELECT id FROM chat_messages
+                        WHERE chat_id = ? AND role = 'assistant' AND created_at >= ?
+                        ORDER BY created_at ASC
+                        LIMIT 1;
+                        """,
+                        [chat_id, user_time],
+                    ).fetchone()
+
+                    ids_to_delete = [user_message_id]
+                    if assistant_row:
+                        ids_to_delete.append(assistant_row[0])
+
+                    placeholders = ",".join(["?"] * len(ids_to_delete))
+                    conn.execute(f"DELETE FROM chat_messages WHERE id IN ({placeholders});", ids_to_delete)
+                    conn.execute("UPDATE chats SET updated_at = CURRENT_TIMESTAMP WHERE id = ?;", [chat_id])
+                    conn.execute("COMMIT;")
+                    return True
+                except Exception:
+                    conn.execute("ROLLBACK;")
+                    raise
+
+    def delete_messages_after(self, chat_id: str, message_id: str) -> int:
+        """
+        Deletes all messages in the chat strictly created after the given message_id.
+        Used when editing an earlier user prompt to prune subsequent turns.
+        """
+        with self._lock:
+            with self._get_connection() as conn:
+                row = conn.execute(
+                    "SELECT created_at FROM chat_messages WHERE id = ? AND chat_id = ?;",
+                    [message_id, chat_id],
+                ).fetchone()
+                if not row:
+                    return 0
+                target_time = row[0]
+                conn.execute(
+                    "DELETE FROM chat_messages WHERE chat_id = ? AND created_at > ?;",
+                    [chat_id, target_time],
+                )
+                conn.execute("UPDATE chats SET updated_at = CURRENT_TIMESTAMP WHERE id = ?;", [chat_id])
+                return 1

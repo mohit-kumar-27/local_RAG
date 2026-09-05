@@ -8,7 +8,7 @@ End-to-end Local RAG pipeline:
 
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
-from config import get_active_llm_model
+from config import CHAT_HISTORY_WINDOW_SIZE, get_active_llm_model
 from ingestion.base import Document
 from rag.hybrid_search import HybridSearcher
 from rag.ollama_client import OllamaClient
@@ -82,6 +82,7 @@ class RAGPipeline:
     async def answer_stream(
         self,
         query: str,
+        chat_id: Optional[str] = None,
         chat_history: Optional[List[Dict[str, str]]] = None,
         doc_type_filter: Optional[str] = None,
         sprint_filter: Optional[str] = None,
@@ -89,6 +90,7 @@ class RAGPipeline:
     ) -> Tuple[List[Tuple[Document, float]], AsyncGenerator[str, None]]:
         """
         Retrieves context, formats prompt, and returns (retrieved_documents, token_stream).
+        Includes sliding-window prior chat history for multi-turn continuity.
         """
         # 1. Retrieve top passages
         retrieved_docs = await self.retrieve_context(
@@ -107,12 +109,18 @@ class RAGPipeline:
             f"Provide a thorough, grounded answer with inline citations for every statement."
         )
 
-        # 3. Assemble chat messages
+        # 3. Assemble chat messages with sliding-window history
         messages: List[Dict[str, str]] = []
-        if chat_history:
-            # Include recent chat history (e.g. last 4 messages to conserve token context)
-            for msg in chat_history[-4:]:
+        if chat_history is not None:
+            for msg in chat_history[-CHAT_HISTORY_WINDOW_SIZE:]:
                 messages.append({"role": msg["role"], "content": msg["content"]})
+        elif chat_id and hasattr(self.searcher, "store"):
+            prior_records = self.searcher.store.get_chat_messages(chat_id, limit=CHAT_HISTORY_WINDOW_SIZE + 2)
+            # If the current query was already inserted into the DB before streaming, exclude it from prior context
+            if prior_records and prior_records[-1].role == "user" and prior_records[-1].content.strip() == query.strip():
+                prior_records = prior_records[:-1]
+            for record in prior_records[-CHAT_HISTORY_WINDOW_SIZE:]:
+                messages.append({"role": record.role, "content": record.content})
 
         messages.append({"role": "user", "content": user_prompt})
 

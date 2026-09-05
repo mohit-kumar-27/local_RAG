@@ -73,7 +73,8 @@ CHUNK_TARGET_TOKENS: int = int(os.getenv("CHUNK_TARGET_TOKENS", "450"))
 CHUNK_OVERLAP_TOKENS: int = int(os.getenv("CHUNK_OVERLAP_TOKENS", "80"))
 MAX_CHUNK_TOKENS: int = int(os.getenv("MAX_CHUNK_TOKENS", "768"))
 
-# --- Retrieval Parameters ---
+# --- Retrieval & Chat History Parameters ---
 TOP_K_HYBRID: int = int(os.getenv("TOP_K_HYBRID", "25"))
 TOP_K_FINAL: int = int(os.getenv("TOP_K_FINAL", "5"))
 RRF_K: int = int(os.getenv("RRF_K", "60"))
+CHAT_HISTORY_WINDOW_SIZE: int = int(os.getenv("CHAT_HISTORY_WINDOW_SIZE", "10"))
