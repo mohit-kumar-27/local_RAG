@@ -3,6 +3,7 @@ GitHub loader combining ghapi (metadata, issues, PRs, trees)
 and shallow git clone for high-throughput, rate-limit-free bulk source ingestion.
 """
 
+import inspect
 import os
 import subprocess
 import tempfile
@@ -144,11 +145,15 @@ class GithubCodeLoader(BaseLoader):
 
         return True, commit_hash
 
-    def _load_issues(self) -> List[Document]:
+    async def _load_issues(self) -> List[Document]:
         """Fetches issues and discussions via ghapi."""
         documents: List[Document] = []
         try:
-            issues = self.api.issues.list_for_repo(state="all", per_page=50)
+            res = self.api.issues.list_for_repo(state="all", per_page=50)
+            if inspect.isawaitable(res):
+                issues = await res
+            else:
+                issues = res
             for issue in issues:
                 if getattr(issue, "pull_request", None):
                     # Skip PRs if we only want issues, or index them as PR
@@ -326,7 +331,7 @@ class GithubCodeLoader(BaseLoader):
 
         # Optionally load GitHub issues
         if self.include_issues:
-            issue_docs = self._load_issues()
+            issue_docs = await self._load_issues()
             all_documents.extend(issue_docs)
 
         return all_documents

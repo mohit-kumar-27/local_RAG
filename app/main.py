@@ -10,19 +10,19 @@ import os
 import re
 import urllib.parse
 import uuid
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 from fasthtml.common import (
-    A, Body, Button, Div, FastHTML, Form, H1, H2, H3, Html, Input, NotStr, Option, P,
+    A, Body, Button, Div, FastHTML, Form, H1, H2, H3, Html, Input, Link, NotStr, Option, P,
     Script, Select, Span, Style, Textarea, Title, fast_app, sse_message
 )
 import mistletoe
 import monsterui.all as ui
 from starlette.requests import Request
-from starlette.responses import StreamingResponse
+from starlette.responses import Response, StreamingResponse
 
 import config
-from app.background import create_job, execute_ingestion, get_job
+from app.background import create_job, execute_ingestion, get_job, get_active_ingestion_job
 from app.ui_components import (
     AppHeader, AssistantMessageBubble, ChatMainArea, ChatSidebar, ChatTab, CitationDrawer, CollectionStatsCard,
     EditAssistantMessageForm, EditMessageForm, IngestProgressSSEComponent, IngestProgressUpdateCard, IngestionTab,
@@ -204,12 +204,19 @@ app, rt = fast_app(
 )
 
 
-def MainLayout(active_tab: str = "chat", active_chat_id: Optional[str] = None, ollama_ok: bool = True):
+def MainLayout(
+    active_tab: str = "chat",
+    active_chat_id: Optional[str] = None,
+    ollama_ok: bool = True,
+    active_job: Optional[Any] = None,
+):
     """Main application shell with full-viewport layout, persistent sessions, and scrollable content."""
+    is_ingesting = (active_job is not None and getattr(active_job, "status", None) in ("queued", "running"))
+    active = "ingest" if (is_ingesting or active_tab == "ingest") else "chat"
     stats = store.get_collection_stats()
-    active = "ingest" if active_tab == "ingest" else "chat"
+
     if active == "ingest":
-        content = IngestionTab(stats)
+        content = IngestionTab(stats, active_job=active_job if is_ingesting else None)
         page_title = "Ingest Sources | Local Confidential RAG"
         tab_content_cls = "flex-1 overflow-y-scroll min-h-0 scroll-smooth scroll-page"
     else:
@@ -224,7 +231,7 @@ def MainLayout(active_tab: str = "chat", active_chat_id: Optional[str] = None, o
         cls="h-screen bg-base-200 text-base-content flex flex-col font-sans overflow-hidden",
     )(
         AppHeader(ollama_connected=ollama_ok, current_model=config.get_active_llm_model(), active_tab=active),
-        TabNavigation(active_tab=active),
+        TabNavigation(active_tab=active, is_ingesting=is_ingesting),
         Div(
             id="tab-content",
             cls=tab_content_cls,
@@ -237,24 +244,51 @@ def MainLayout(active_tab: str = "chat", active_chat_id: Optional[str] = None, o
 @rt("/")
 async def get(tab: Optional[str] = "chat", chat_id: Optional[str] = None):
     """Main route serving Ingest and Chatbot tabs with optional active chat session."""
+    active_job = get_active_ingestion_job()
     ok, _, _ = await ollama.check_connection()
-    return MainLayout(active_tab=tab or "chat", active_chat_id=chat_id, ollama_ok=ok)
+    return MainLayout(active_tab=tab or "chat", active_chat_id=chat_id, ollama_ok=ok, active_job=active_job)
 
 
 @rt("/tab/{tab_name}")
 async def get_tab(tab_name: str, req: Request, chat_id: Optional[str] = None):
     """Swaps tab content, updates navigation active highlight, and sets page title."""
-    active = "ingest" if tab_name == "ingest" else "chat"
+    active_job = get_active_ingestion_job()
+    is_ingesting = (active_job is not None and getattr(active_job, "status", None) in ("queued", "running"))
+
+    if is_ingesting and tab_name == "chat":
+        # Disallow switching to Chatbot while ingestion is in progress
+        active = "ingest"
+        page_title = "Ingest Sources | Local Confidential RAG"
+        stats = store.get_collection_stats()
+        content = IngestionTab(stats, active_job=active_job)
+        tab_content_cls = "flex-1 overflow-y-scroll min-h-0 scroll-smooth scroll-page"
+        tab_content = Div(
+            id="tab-content",
+            cls=tab_content_cls,
+        )(
+            Div(cls="uk-alert uk-alert-warning text-sm p-4 mx-auto max-w-5xl mt-4 rounded-xl flex items-center gap-3 shadow")(
+                Span("⚠️ Ingestion is currently in progress. The Chatbot tab is locked until indexing completes to protect Ollama resources.")
+            ),
+            content,
+        )
+        return (
+            Title(page_title, id="app-page-title"),
+            Script(f'document.title = "{page_title}";'),
+            TabNavigation(active_tab="ingest", is_ingesting=True, hx_swap_oob="true"),
+            tab_content,
+        )
+
+    active = "ingest" if (tab_name == "ingest" or is_ingesting) else "chat"
     page_title = "Ingest Sources | Local Confidential RAG" if active == "ingest" else "Ask Chatbot | Local Confidential RAG"
 
     # If direct browser navigation to /tab/... without HTMX, return full layout
     if not req.headers.get("HX-Request"):
         ok, _, _ = await ollama.check_connection()
-        return MainLayout(active_tab=active, active_chat_id=chat_id, ollama_ok=ok)
+        return MainLayout(active_tab=active, active_chat_id=chat_id, ollama_ok=ok, active_job=active_job)
 
     stats = store.get_collection_stats()
     if active == "ingest":
-        content = IngestionTab(stats)
+        content = IngestionTab(stats, active_job=active_job if is_ingesting else None)
         tab_content_cls = "flex-1 overflow-y-scroll min-h-0 scroll-smooth scroll-page"
     else:
         chats = store.list_chats()
@@ -270,7 +304,7 @@ async def get_tab(tab_name: str, req: Request, chat_id: Optional[str] = None):
     return (
         Title(page_title, id="app-page-title"),
         Script(f'document.title = "{page_title}";'),
-        TabNavigation(active_tab=active, hx_swap_oob="true"),
+        TabNavigation(active_tab=active, is_ingesting=is_ingesting, hx_swap_oob="true"),
         tab_content,
     )
 
@@ -278,13 +312,19 @@ async def get_tab(tab_name: str, req: Request, chat_id: Optional[str] = None):
 @rt("/api/stats")
 def get_stats():
     """Returns updated stats card."""
+    active_job = get_active_ingestion_job()
+    is_ingesting = (active_job is not None and getattr(active_job, "status", None) in ("queued", "running"))
     stats = store.get_collection_stats()
-    return CollectionStatsCard(stats)
+    return CollectionStatsCard(stats, is_ingesting=is_ingesting)
 
 
 @rt("/api/clear")
 def post_clear():
     """Clears DuckDB database."""
+    if get_active_ingestion_job():
+        return Div(cls="uk-alert uk-alert-warning text-xs p-3 rounded font-mono")(
+            "Cannot clear database while ingestion is in progress."
+        )
     store.clear_all()
     stats = store.get_collection_stats()
     return CollectionStatsCard(stats)
@@ -310,6 +350,11 @@ async def post_ingest(
     url = url.strip()
     if not url:
         return Div(cls="uk-alert uk-alert-danger text-sm p-3 rounded")("Error: Source URL is required.")
+
+    if get_active_ingestion_job():
+        return Div(cls="uk-alert uk-alert-warning text-sm p-3 rounded")(
+            "An ingestion job is already in progress. Please wait for it to complete."
+        )
 
     # Create loader
     try:
@@ -344,7 +389,10 @@ async def post_ingest(
     job = create_job(source_type=source_type, url=url)
     asyncio.create_task(execute_ingestion(job.id, loader, store, ollama))
 
-    return IngestProgressSSEComponent(job.id)
+    return (
+        IngestProgressSSEComponent(job.id),
+        TabNavigation(active_tab="ingest", is_ingesting=True, hx_swap_oob="true"),
+    )
 
 
 @rt("/api/ingest/stream/{job_id}")
@@ -365,11 +413,16 @@ async def get_ingest_stream(job_id: str):
                 logs=job.logs,
                 error_message=job.error_message,
             )
-            yield sse_message(card)
 
             if job.status in ("completed", "failed"):
+                # Out-of-band swap to unlock the "Ask Chatbot" tab button in the navigation bar
+                nav = TabNavigation(active_tab="ingest", is_ingesting=False, hx_swap_oob="true")
+                yield sse_message((card, nav))
                 yield "event: close\ndata: finished\n\n"
                 break
+            else:
+                yield sse_message(card)
+
             await asyncio.sleep(0.6)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

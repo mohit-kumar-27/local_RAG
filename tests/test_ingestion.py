@@ -14,7 +14,7 @@ from ingestion.github_loader import parse_github_url
 from ingestion.ado_loader import parse_ado_url, html_to_plain_text
 from ingestion.confluence_loader import parse_confluence_url
 from rag.chunking import is_binary_file, is_ignored_path
-from app.background import create_job, get_job
+from app.background import JOBS, create_job, get_active_ingestion_job, get_job
 
 
 class TestIngestionLoaders(unittest.TestCase):
@@ -97,6 +97,58 @@ class TestIngestionLoaders(unittest.TestCase):
         job.add_log("Cloning complete")
         self.assertEqual(len(job.logs), 1)
         self.assertIn("Cloning complete", job.logs[0])
+
+    def test_active_ingestion_job_tracking(self):
+        JOBS.clear()
+        self.assertIsNone(get_active_ingestion_job())
+
+        job1 = create_job("github", "https://github.com/org/repo")
+        self.assertEqual(get_active_ingestion_job().id, job1.id)
+
+        job1.status = "running"
+        self.assertEqual(get_active_ingestion_job().id, job1.id)
+
+        job1.status = "completed"
+        self.assertIsNone(get_active_ingestion_job())
+
+    def test_ingestion_tab_lockout_ui(self):
+        from app.ui_components import TabNavigation
+        from fasthtml.common import to_xml
+
+        # 1. Normal state: Ask Chatbot is clickable
+        nav_normal = TabNavigation(active_tab="ingest", is_ingesting=False)
+        xml_normal = to_xml(nav_normal)
+        self.assertIn('hx-get="/tab/chat"', xml_normal)
+        self.assertNotIn("Ask Chatbot (Locked)", xml_normal)
+
+        # 2. Ingesting state: Ask Chatbot is locked
+        nav_locked = TabNavigation(active_tab="ingest", is_ingesting=True)
+        xml_locked = to_xml(nav_locked)
+        self.assertNotIn('hx-get="/tab/chat"', xml_locked)
+        self.assertIn("Ask Chatbot (Locked)", xml_locked)
+        self.assertIn("Ingestion in progress (Chatbot locked)", xml_locked)
+        self.assertIn("cursor-not-allowed", xml_locked)
+
+    def test_tab_chat_route_blocked_during_ingestion(self):
+        from starlette.testclient import TestClient
+        from app.main import app
+
+        JOBS.clear()
+        job = create_job("github", "https://github.com/fastai/fastcore")
+        job.status = "running"
+
+        client = TestClient(app)
+        resp = client.get("/tab/chat", headers={"HX-Request": "true"})
+        self.assertEqual(resp.status_code, 200)
+        # Verify it stays on Ingest Sources and displays warning alert
+        self.assertIn("Ingestion is currently in progress", resp.text)
+        self.assertIn("Ask Chatbot (Locked)", resp.text)
+
+        # Reset job to completed
+        job.status = "completed"
+        resp_after = client.get("/tab/chat", headers={"HX-Request": "true"})
+        self.assertEqual(resp_after.status_code, 200)
+        self.assertNotIn("Ask Chatbot (Locked)", resp_after.text)
 
 
 if __name__ == "__main__":

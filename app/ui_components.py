@@ -58,21 +58,47 @@ def AppHeader(ollama_connected: bool = True, current_model: str = "", active_tab
     )
 
 
-def TabNavigation(active_tab: str = "chat", **kwargs):
+def TabNavigation(active_tab: str = "chat", is_ingesting: bool = False, **kwargs):
     """
     Segmented pill navigation for Ingestion and Chatbot views.
     Distinct, high-contrast, and completely consistent across page reloads and HTMX swaps.
+    When is_ingesting is True, disables tab switching to Ask Chatbot to protect live SSE
+    stream and avoid Ollama resource contention.
     """
     is_chat = (active_tab == "chat")
     is_ingest = (active_tab == "ingest")
 
-    chat_btn_cls = (
-        "bg-primary text-primary-content font-bold shadow-sm shadow-primary/40 rounded-lg px-4 py-2 "
-        "flex items-center gap-2 transition-all duration-150 transform scale-[1.02] cursor-default"
-        if is_chat else
-        "text-base-content/70 hover:text-base-content hover:bg-base-300/60 font-medium rounded-lg px-4 py-2 "
-        "flex items-center gap-2 transition-all duration-150"
-    )
+    if is_ingesting:
+        chat_btn = Div(
+            cls="text-base-content/40 bg-base-200/60 cursor-not-allowed opacity-50 font-medium rounded-lg px-4 py-2 flex items-center gap-2 select-none border border-base-300/40 pointer-events-none",
+            title="Ingestion is in progress. Please wait until indexing completes.",
+            aria_disabled="true",
+        )(
+            Span(cls="text-base grayscale")("💬"),
+            Span("Ask Chatbot (Locked)"),
+            Span(cls="text-xs")("🔒"),
+        )
+    else:
+        chat_btn_cls = (
+            "bg-primary text-primary-content font-bold shadow-sm shadow-primary/40 rounded-lg px-4 py-2 "
+            "flex items-center gap-2 transition-all duration-150 transform scale-[1.02] cursor-default"
+            if is_chat else
+            "text-base-content/70 hover:text-base-content hover:bg-base-300/60 font-medium rounded-lg px-4 py-2 "
+            "flex items-center gap-2 transition-all duration-150"
+        )
+        chat_dot = Span(cls="w-2 h-2 rounded-full bg-white animate-pulse") if is_chat else None
+        chat_btn = A(
+            href="/?tab=chat",
+            hx_get="/tab/chat",
+            hx_target="#tab-content",
+            hx_swap="outerHTML",
+            hx_push_url="true",
+            cls=chat_btn_cls,
+        )(
+            Span(cls="text-base")("💬"),
+            Span("Ask Chatbot"),
+            chat_dot,
+        )
 
     ingest_btn_cls = (
         "bg-primary text-primary-content font-bold shadow-sm shadow-primary/40 rounded-lg px-4 py-2 "
@@ -81,9 +107,36 @@ def TabNavigation(active_tab: str = "chat", **kwargs):
         "text-base-content/70 hover:text-base-content hover:bg-base-300/60 font-medium rounded-lg px-4 py-2 "
         "flex items-center gap-2 transition-all duration-150"
     )
-
-    chat_dot = Span(cls="w-2 h-2 rounded-full bg-white animate-pulse") if is_chat else None
     ingest_dot = Span(cls="w-2 h-2 rounded-full bg-white animate-pulse") if is_ingest else None
+    ingest_btn = A(
+        href="/?tab=ingest",
+        hx_get="/tab/ingest",
+        hx_target="#tab-content",
+        hx_swap="outerHTML",
+        hx_push_url="true",
+        cls=ingest_btn_cls,
+    )(
+        Span(cls="text-base")("📥"),
+        Span("Ingest Sources"),
+        ingest_dot,
+    )
+
+    if is_ingesting:
+        breadcrumb = Div(cls="flex items-center gap-2 text-xs")(
+            Span(cls="text-base-content/50 font-medium hidden sm:inline")("Status:"),
+            Span(cls="px-2.5 py-1 bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30 rounded-md font-mono font-semibold flex items-center gap-1.5 animate-pulse")(
+                Span(cls="w-2 h-2 rounded-full bg-amber-500 animate-ping"),
+                "⏳ Ingestion in progress (Chatbot locked)"
+            ),
+        )
+    else:
+        breadcrumb = Div(cls="hidden sm:flex items-center gap-2 text-xs")(
+            Span(cls="text-base-content/50 font-medium")("Current Page:"),
+            Span(cls="px-2.5 py-1 bg-primary/10 text-primary border border-primary/20 rounded-md font-mono font-semibold flex items-center gap-1.5")(
+                Span(cls="w-1.5 h-1.5 rounded-full bg-primary"),
+                "💬 Chatbot & Context Q&A" if is_chat else "📥 Source Ingestion & Sync"
+            ),
+        )
 
     return Div(
         id="main-tab-nav",
@@ -93,44 +146,15 @@ def TabNavigation(active_tab: str = "chat", **kwargs):
         Div(cls="flex items-center gap-3")(
             Span(cls="text-xs font-semibold uppercase tracking-wider text-base-content/50")("Views:"),
             Div(cls="bg-base-200 p-1 rounded-xl inline-flex border border-base-300 shadow-inner gap-1")(
-                A(
-                    href="/?tab=chat",
-                    hx_get="/tab/chat",
-                    hx_target="#tab-content",
-                    hx_swap="outerHTML",
-                    hx_push_url="true",
-                    cls=chat_btn_cls,
-                )(
-                    Span(cls="text-base")("💬"),
-                    Span("Ask Chatbot"),
-                    chat_dot,
-                ),
-                A(
-                    href="/?tab=ingest",
-                    hx_get="/tab/ingest",
-                    hx_target="#tab-content",
-                    hx_swap="outerHTML",
-                    hx_push_url="true",
-                    cls=ingest_btn_cls,
-                )(
-                    Span(cls="text-base")("📥"),
-                    Span("Ingest Sources"),
-                    ingest_dot,
-                ),
+                chat_btn,
+                ingest_btn,
             ),
         ),
-        # Current active page breadcrumb indicator
-        Div(cls="hidden sm:flex items-center gap-2 text-xs")(
-            Span(cls="text-base-content/50 font-medium")("Current Page:"),
-            Span(cls="px-2.5 py-1 bg-primary/10 text-primary border border-primary/20 rounded-md font-mono font-semibold flex items-center gap-1.5")(
-                Span(cls="w-1.5 h-1.5 rounded-full bg-primary"),
-                "💬 Chatbot & Context Q&A" if is_chat else "📥 Source Ingestion & Sync"
-            ),
-        ),
+        breadcrumb,
     )
 
 
-def CollectionStatsCard(stats: Dict[str, Any], cls: Optional[str] = None, **kwargs):
+def CollectionStatsCard(stats: Dict[str, Any], cls: Optional[str] = None, is_ingesting: bool = False, **kwargs):
     """Renders collection statistics card with document counts and disk usage."""
     by_type = stats.get("by_type", {})
     code_count = by_type.get("code", 0)
@@ -163,15 +187,26 @@ def CollectionStatsCard(stats: Dict[str, Any], cls: Optional[str] = None, **kwar
                     Span("🔄", cls="text-xs"),
                     Span("Refresh"),
                 ),
-                Button(
-                    hx_post="/api/clear",
-                    hx_confirm="Are you sure you want to delete all indexed data in DuckDB?",
-                    hx_target="#collection-stats-card",
-                    hx_swap="outerHTML",
-                    cls="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-rose-700 dark:text-rose-200 bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900/60 rounded-lg shadow-2xs hover:shadow-xs transition-all active:scale-95 cursor-pointer",
-                )(
-                    Span("🗑️", cls="text-xs"),
-                    Span("Clear DB"),
+                (
+                    Button(
+                        disabled=True,
+                        title="Database cannot be cleared while ingestion is in progress",
+                        cls="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-rose-400 dark:text-rose-400 bg-rose-50/50 dark:bg-rose-950/20 border border-rose-200/50 dark:border-rose-900/30 rounded-lg opacity-50 cursor-not-allowed select-none",
+                    )(
+                        Span("🗑️", cls="text-xs grayscale"),
+                        Span("Clear DB (Locked)"),
+                    )
+                    if is_ingesting
+                    else Button(
+                        hx_post="/api/clear",
+                        hx_confirm="Are you sure you want to delete all indexed data in DuckDB?",
+                        hx_target="#collection-stats-card",
+                        hx_swap="outerHTML",
+                        cls="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-rose-700 dark:text-rose-200 bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900/60 rounded-lg shadow-2xs hover:shadow-xs transition-all active:scale-95 cursor-pointer",
+                    )(
+                        Span("🗑️", cls="text-xs"),
+                        Span("Clear DB"),
+                    )
                 ),
             ),
         ),
@@ -206,18 +241,39 @@ def CollectionStatsCard(stats: Dict[str, Any], cls: Optional[str] = None, **kwar
     )
 
 
-def IngestionTab(stats: Dict[str, Any], cls: Optional[str] = None, **kwargs):
+def IngestionTab(stats: Dict[str, Any], active_job: Optional[Any] = None, cls: Optional[str] = None, **kwargs):
     """Tab 1: Ingest Sources view with form, live SSE progress container, and stats."""
     base_cls = "max-w-5xl mx-auto py-6 px-4 space-y-6 pb-16 w-full"
     if cls:
         base_cls = f"{base_cls} {cls}"
+
+    is_ingesting = (active_job is not None and getattr(active_job, "status", None) in ("queued", "running"))
+
+    if is_ingesting:
+        submit_btn = Button(
+            type="button",
+            disabled=True,
+            title="Ingestion is currently running",
+            cls="uk-button uk-button-default opacity-50 cursor-not-allowed flex items-center gap-2",
+        )(
+            Span(cls="animate-spin h-4 w-4 border-2 border-primary border-t-transparent rounded-full"),
+            Span("Ingestion in Progress..."),
+        )
+        progress_content = IngestProgressSSEComponent(active_job.id)
+    else:
+        submit_btn = Button(
+            type="submit",
+            cls="uk-button uk-button-primary",
+        )("Start Ingestion")
+        progress_content = None
+
     return Div(
         id=kwargs.pop("id", "ingestion-tab-container"),
         cls=base_cls,
         **kwargs,
     )(
         # Stats summary
-        CollectionStatsCard(stats),
+        CollectionStatsCard(stats, is_ingesting=is_ingesting),
 
         # Ingestion form card
         Div(cls="card bg-base-100 shadow border border-base-200 p-6")(
@@ -274,16 +330,13 @@ def IngestionTab(stats: Dict[str, Any], cls: Optional[str] = None, **kwargs):
                     ),
                 ),
                 Div(cls="flex justify-end pt-2")(
-                    Button(
-                        type="submit",
-                        cls="uk-button uk-button-primary",
-                    )("Start Ingestion"),
+                    submit_btn
                 ),
             ),
         ),
 
         # Ingestion Progress SSE target
-        Div(id="ingest-progress-container", cls="min-h-[50px]"),
+        Div(id="ingest-progress-container", cls="min-h-[50px]")(progress_content),
     )
 
 
@@ -338,13 +391,17 @@ def IngestProgressUpdateCard(
             )
         ),
         (
-            Div(cls="pt-2 flex justify-end")(
+            Div(cls="pt-2 flex flex-wrap justify-between items-center gap-2")(
+                Span(cls="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5")(
+                    Span(cls="w-2 h-2 rounded-full bg-emerald-500"),
+                    "Ingestion complete! Ask Chatbot tab is now unlocked.",
+                ),
                 Button(
                     hx_get="/api/stats",
                     hx_target="#collection-stats-card",
                     hx_swap="outerHTML",
                     cls="uk-button uk-button-primary uk-button-sm",
-                )("Update Stats")
+                )("Update Stats"),
             )
             if status == "completed"
             else None

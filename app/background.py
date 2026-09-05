@@ -52,6 +52,14 @@ def get_job(job_id: str) -> Optional[IngestionJob]:
     return JOBS.get(job_id)
 
 
+def get_active_ingestion_job() -> Optional[IngestionJob]:
+    """Returns the most recent active ingestion job (status queued or running), if any."""
+    for job in reversed(list(JOBS.values())):
+        if job.status in ("queued", "running"):
+            return job
+    return None
+
+
 async def execute_ingestion(
     job_id: str,
     loader: BaseLoader,
