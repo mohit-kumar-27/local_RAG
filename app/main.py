@@ -13,7 +13,8 @@ import uuid
 from typing import Optional
 
 from fasthtml.common import (
-    Body, Div, FastHTML, Html, NotStr, P, Script, Span, Style, Title, fast_app, sse_message
+    A, Body, Button, Div, FastHTML, Form, H1, H2, H3, Html, Input, NotStr, Option, P,
+    Script, Select, Span, Style, Textarea, Title, fast_app, sse_message
 )
 import mistletoe
 import monsterui.all as ui
@@ -267,7 +268,7 @@ async def get_ingest_stream(job_id: str):
 def get_new_chat():
     """Resets chat area to clean 'New Chat' state and clears active sidebar highlight."""
     chats = store.list_chats()
-    return Div(
+    return (
         ChatSidebar(chats=chats, active_chat_id=None, hx_swap_oob="true"),
         ChatMainArea(messages=[], active_chat_id=None),
     )
@@ -278,7 +279,7 @@ def get_chat_session(chat_id: str):
     """Loads past chat session messages and highlights session in sidebar."""
     chats = store.list_chats()
     messages = store.get_chat_messages(chat_id)
-    return Div(
+    return (
         ChatSidebar(chats=chats, active_chat_id=chat_id, hx_swap_oob="true"),
         ChatMainArea(messages=messages, active_chat_id=chat_id),
     )
@@ -378,7 +379,7 @@ async def post_edit_message(
             turns.append(AssistantMessageBubble(msg, chat_id))
             i += 1
 
-    return Div(
+    return (
         ChatSidebar(chats=chats, active_chat_id=chat_id, hx_swap_oob="true"),
         Div(
             id="chat-main-area",
@@ -528,7 +529,7 @@ async def post_chat(
     sidebar_oob = ChatSidebar(chats=chats, active_chat_id=chat_id, hx_swap_oob="true")
     chat_id_input_oob = Input(type="hidden", id="active-chat-id-input", name="chat_id", value=chat_id, hx_swap_oob="true")
 
-    return Div(turn_element, sidebar_oob, chat_id_input_oob)
+    return turn_element, sidebar_oob, chat_id_input_oob
 
 
 @rt("/api/chat/stream/{stream_id}")

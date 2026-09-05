@@ -20,7 +20,7 @@ from ingestion.base import Document
 from rag.duckdb_store import ChatMessageRecord, ChatSession
 
 
-def AppHeader(ollama_connected: bool = True, current_model: str = "", active_tab: str = "chat"):
+def AppHeader(ollama_connected: bool = True, current_model: str = "", active_tab: str = "chat", cls: Optional[str] = None, **kwargs):
     """Header bar with title, confidential security badge, and RAM mode indicators."""
     status_color = "uk-badge-success" if ollama_connected else "uk-badge-danger"
     status_text = "Ollama Active" if ollama_connected else "Ollama Disconnected"
@@ -28,7 +28,15 @@ def AppHeader(ollama_connected: bool = True, current_model: str = "", active_tab
     ram_mode_label = "3B Low-RAM" if LOW_RAM_MODE else "8B Standard"
     ram_btn_style = "uk-button-secondary" if LOW_RAM_MODE else "uk-button-default"
 
-    return Div(cls="flex flex-col md:flex-row justify-between items-start md:items-center py-4 px-6 bg-base-200 border-b border-base-300 gap-4 flex-shrink-0")(
+    base_cls = "flex flex-col md:flex-row justify-between items-start md:items-center py-4 px-6 bg-base-200 border-b border-base-300 gap-4 flex-shrink-0"
+    if cls:
+        base_cls = f"{base_cls} {cls}"
+
+    return Div(
+        id=kwargs.pop("id", "app-header"),
+        cls=base_cls,
+        **kwargs,
+    )(
         Div(cls="flex items-center space-x-3")(
             Div(cls="p-2 bg-primary text-primary-content rounded-lg font-mono font-bold text-xl")("RAG"),
             Div(
@@ -120,7 +128,7 @@ def TabNavigation(active_tab: str = "chat", **kwargs):
     )
 
 
-def CollectionStatsCard(stats: Dict[str, Any]):
+def CollectionStatsCard(stats: Dict[str, Any], cls: Optional[str] = None, **kwargs):
     """Renders collection statistics card with document counts and disk usage."""
     by_type = stats.get("by_type", {})
     code_count = by_type.get("code", 0)
@@ -129,7 +137,15 @@ def CollectionStatsCard(stats: Dict[str, Any]):
     total_docs = stats.get("total_documents", 0)
     disk_mb = stats.get("disk_size_mb", 0.0)
 
-    return Div(id="collection-stats-card", cls="card bg-base-100 shadow-sm border border-slate-200 dark:border-slate-800 p-6 space-y-4")(
+    base_cls = "card bg-base-100 shadow-sm border border-slate-200 dark:border-slate-800 p-6 space-y-4"
+    if cls:
+        base_cls = f"{base_cls} {cls}"
+
+    return Div(
+        id=kwargs.pop("id", "collection-stats-card"),
+        cls=base_cls,
+        **kwargs,
+    )(
         Div(cls="flex flex-wrap justify-between items-center gap-3 pb-2 border-b border-slate-200 dark:border-slate-800")(
             Div(cls="flex items-center gap-2")(
                 Span(cls="text-base")("📊"),
@@ -188,9 +204,16 @@ def CollectionStatsCard(stats: Dict[str, Any]):
     )
 
 
-def IngestionTab(stats: Dict[str, Any]):
+def IngestionTab(stats: Dict[str, Any], cls: Optional[str] = None, **kwargs):
     """Tab 1: Ingest Sources view with form, live SSE progress container, and stats."""
-    return Div(cls="max-w-5xl mx-auto py-6 px-4 space-y-6 pb-16 w-full")(
+    base_cls = "max-w-5xl mx-auto py-6 px-4 space-y-6 pb-16 w-full"
+    if cls:
+        base_cls = f"{base_cls} {cls}"
+    return Div(
+        id=kwargs.pop("id", "ingestion-tab-container"),
+        cls=base_cls,
+        **kwargs,
+    )(
         # Stats summary
         CollectionStatsCard(stats),
 
@@ -526,7 +549,7 @@ def deserialize_citations(citations_data: Optional[List[Dict[str, Any]]]) -> Lis
     return docs_with_scores
 
 
-def ChatSidebar(chats: List[ChatSession], active_chat_id: Optional[str] = None):
+def ChatSidebar(chats: List[ChatSession], active_chat_id: Optional[str] = None, cls: Optional[str] = None, **kwargs):
     """Sidebar listing persisted chat sessions with New Chat button and delete controls."""
     chat_items = []
     for chat in chats:
@@ -574,9 +597,14 @@ def ChatSidebar(chats: List[ChatSession], active_chat_id: Optional[str] = None):
         else None
     )
 
+    base_cls = "w-full md:w-64 lg:w-72 flex-shrink-0 bg-base-100 border-r border-base-300 flex flex-col h-auto md:h-full min-h-0"
+    if cls:
+        base_cls = f"{base_cls} {cls}"
+
     return Div(
-        id="chat-sidebar",
-        cls="w-full md:w-64 lg:w-72 flex-shrink-0 bg-base-100 border-r border-base-300 flex flex-col h-auto md:h-full min-h-0",
+        id=kwargs.pop("id", "chat-sidebar"),
+        cls=base_cls,
+        **kwargs,
     )(
         Div(cls="p-3 border-b border-base-300 flex items-center justify-between gap-2 flex-shrink-0 bg-base-100/90")(
             Span(cls="text-xs font-bold uppercase tracking-wider text-base-content/70 flex items-center gap-1.5")(
@@ -604,11 +632,15 @@ def ChatSidebar(chats: List[ChatSession], active_chat_id: Optional[str] = None):
     )
 
 
-def UserMessageBubble(msg: ChatMessageRecord, chat_id: str):
+def UserMessageBubble(msg: ChatMessageRecord, chat_id: str, cls: Optional[str] = None, **kwargs):
     """Renders a user message bubble with inline Edit and Delete action controls."""
+    base_cls = "group flex items-start justify-end gap-2.5 w-full my-1.5"
+    if cls:
+        base_cls = f"{base_cls} {cls}"
     return Div(
-        id=f"user-bubble-container-{msg.id}",
-        cls="group flex items-start justify-end gap-2.5 w-full my-1.5",
+        id=kwargs.pop("id", f"user-bubble-container-{msg.id}"),
+        cls=base_cls,
+        **kwargs,
     )(
         Div(
             cls="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity self-center text-xs"
@@ -643,7 +675,7 @@ def UserMessageBubble(msg: ChatMessageRecord, chat_id: str):
     )
 
 
-def AssistantMessageBubble(msg: ChatMessageRecord, chat_id: str):
+def AssistantMessageBubble(msg: ChatMessageRecord, chat_id: str, cls: Optional[str] = None, **kwargs):
     """Renders an assistant message bubble with formatted markdown, collapsible citations, and delete control."""
     raw_html = mistletoe.markdown(msg.content)
     formatted_html = format_inline_citations(raw_html)
@@ -651,9 +683,14 @@ def AssistantMessageBubble(msg: ChatMessageRecord, chat_id: str):
     docs_with_scores = deserialize_citations(msg.citations)
     citations_component = CitationDrawer(docs_with_scores) if docs_with_scores else None
 
+    base_cls = "group flex items-start space-x-3 w-full my-2"
+    if cls:
+        base_cls = f"{base_cls} {cls}"
+
     return Div(
-        id=f"assistant-bubble-{msg.id}",
-        cls="group flex items-start space-x-3 w-full my-2",
+        id=kwargs.pop("id", f"assistant-bubble-{msg.id}"),
+        cls=base_cls,
+        **kwargs,
     )(
         Div(
             cls="w-8 h-8 rounded-full bg-slate-800 dark:bg-slate-700 text-white flex-shrink-0 flex items-center justify-center font-black font-mono text-[11px] shadow-sm mt-0.5"
@@ -681,22 +718,30 @@ def AssistantMessageBubble(msg: ChatMessageRecord, chat_id: str):
     )
 
 
-def ChatMessageTurn(user_msg: ChatMessageRecord, assistant_msg: Optional[ChatMessageRecord], chat_id: str):
+def ChatMessageTurn(user_msg: ChatMessageRecord, assistant_msg: Optional[ChatMessageRecord], chat_id: str, cls: Optional[str] = None, **kwargs):
     """Groups a paired user prompt and assistant reply into a single turn container."""
+    base_cls = "space-y-3"
+    if cls:
+        base_cls = f"{base_cls} {cls}"
     return Div(
-        id=f"turn-{user_msg.id}",
-        cls="space-y-3",
+        id=kwargs.pop("id", f"turn-{user_msg.id}"),
+        cls=base_cls,
+        **kwargs,
     )(
         UserMessageBubble(user_msg, chat_id),
         AssistantMessageBubble(assistant_msg, chat_id) if assistant_msg else None,
     )
 
 
-def EditMessageForm(chat_id: str, message_id: str, current_content: str):
+def EditMessageForm(chat_id: str, message_id: str, current_content: str, cls: Optional[str] = None, **kwargs):
     """Inline edit form for updating an existing user prompt."""
+    base_cls = "w-full my-2 flex justify-end"
+    if cls:
+        base_cls = f"{base_cls} {cls}"
     return Div(
-        id=f"user-bubble-container-{message_id}",
-        cls="w-full my-2 flex justify-end",
+        id=kwargs.pop("id", f"user-bubble-container-{message_id}"),
+        cls=base_cls,
+        **kwargs,
     )(
         Div(
             cls="w-full max-w-xl bg-base-100 border-2 border-primary/50 rounded-2xl p-4 shadow-md space-y-3"
@@ -766,7 +811,7 @@ def WelcomeMessage():
     )
 
 
-def ChatMainArea(messages: Optional[List[ChatMessageRecord]] = None, active_chat_id: Optional[str] = None):
+def ChatMainArea(messages: Optional[List[ChatMessageRecord]] = None, active_chat_id: Optional[str] = None, cls: Optional[str] = None, **kwargs):
     """
     Main conversation area containing scope/sprint filters, message history timeline,
     and sticky prompt input bar.
@@ -786,9 +831,14 @@ def ChatMainArea(messages: Optional[List[ChatMessageRecord]] = None, active_chat
 
     content_children = turns if turns else [WelcomeMessage()]
 
+    base_cls = "flex-1 flex flex-col min-h-0 h-full p-4 md:px-6 md:py-4 overflow-y-auto scroll-smooth"
+    if cls:
+        base_cls = f"{base_cls} {cls}"
+
     return Div(
-        id="chat-main-area",
-        cls="flex-1 flex flex-col min-h-0 h-full p-4 md:px-6 md:py-4 overflow-y-auto scroll-smooth",
+        id=kwargs.pop("id", "chat-main-area"),
+        cls=base_cls,
+        **kwargs,
     )(
         Div(cls="sticky top-0 z-10 bg-base-200/95 backdrop-blur-sm pt-1 pb-3 mb-2 flex-shrink-0")(
             Div(cls="flex flex-wrap items-center justify-between gap-3 p-3 bg-base-100 border border-base-300 rounded-xl shadow-sm text-xs w-full")(
@@ -890,11 +940,15 @@ def ChatMainArea(messages: Optional[List[ChatMessageRecord]] = None, active_chat
     )
 
 
-def ChatTab(chats: Optional[List[ChatSession]] = None, active_chat_id: Optional[str] = None, messages: Optional[List[ChatMessageRecord]] = None):
+def ChatTab(chats: Optional[List[ChatSession]] = None, active_chat_id: Optional[str] = None, messages: Optional[List[ChatMessageRecord]] = None, cls: Optional[str] = None, **kwargs):
     """Tab 2: Ask Chatbot view with responsive session sidebar and conversation main area."""
+    base_cls = "flex flex-col md:flex-row h-full min-h-full w-full"
+    if cls:
+        base_cls = f"{base_cls} {cls}"
     return Div(
-        id="chat-tab-container",
-        cls="flex flex-col md:flex-row h-full min-h-full w-full",
+        id=kwargs.pop("id", "chat-tab-container"),
+        cls=base_cls,
+        **kwargs,
     )(
         ChatSidebar(chats or [], active_chat_id=active_chat_id),
         ChatMainArea(messages=messages, active_chat_id=active_chat_id),

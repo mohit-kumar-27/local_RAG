@@ -121,6 +121,30 @@ class DuckDBStore:
                 )
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_messages_chat_id ON chat_messages (chat_id);")
 
+                # Auto-migrate legacy chat_messages table if it has DuckDB FOREIGN KEY constraint
+                try:
+                    has_fk = conn.execute("""
+                        SELECT COUNT(*) FROM duckdb_constraints() 
+                        WHERE table_name = 'chat_messages' AND constraint_type = 'FOREIGN KEY';
+                    """).fetchone()[0] > 0
+                    if has_fk:
+                        conn.execute("""
+                            CREATE TABLE chat_messages_migrated (
+                                id VARCHAR PRIMARY KEY,
+                                chat_id VARCHAR,
+                                role VARCHAR,
+                                content TEXT,
+                                citations JSON,
+                                created_at TIMESTAMP
+                            );
+                            INSERT INTO chat_messages_migrated SELECT * FROM chat_messages;
+                            DROP TABLE chat_messages;
+                            ALTER TABLE chat_messages_migrated RENAME TO chat_messages;
+                            CREATE INDEX IF NOT EXISTS idx_chat_messages_chat_id ON chat_messages (chat_id);
+                        """)
+                except Exception:
+                    pass
+
     def filter_existing_hashes(self, content_hashes: List[str]) -> Set[str]:
         """
         Returns the subset of content_hashes that already exist in DuckDB.
