@@ -181,6 +181,37 @@ class TestChatHistory(unittest.TestCase):
         self.assertIn('id="chat-sidebar"', resp_session.text)
         self.assertIn('id="chat-main-area"', resp_session.text)
 
+    def test_scrollbars_and_tab_swapping(self):
+        from starlette.testclient import TestClient
+        from app.main import app
+
+        client = TestClient(app)
+
+        # 1. Ingest page should have overflow-y-scroll and scrollbar CSS
+        r_ingest = client.get("/?tab=ingest")
+        self.assertEqual(r_ingest.status_code, 200)
+        self.assertIn("overflow-y-scroll", r_ingest.text)
+        self.assertIn("::-webkit-scrollbar", r_ingest.text)
+        self.assertIn("scrollbar-gutter: stable", r_ingest.text)
+
+        # 2. Chat page should have overflow-y-scroll on chat-main-area
+        r_chat = client.get("/?tab=chat")
+        self.assertEqual(r_chat.status_code, 200)
+        self.assertIn("overflow-y-scroll", r_chat.text)
+
+        # 3. Swapping to Ingest tab via HTMX must return tab-content with overflow-y-scroll
+        r_htmx_ingest = client.get("/tab/ingest", headers={"HX-Request": "true"})
+        self.assertEqual(r_htmx_ingest.status_code, 200)
+        self.assertIn('id="tab-content"', r_htmx_ingest.text)
+        self.assertIn("overflow-y-scroll", r_htmx_ingest.text)
+
+        # 4. Swapping to Chat tab via HTMX must return tab-content and chat-main-area with overflow-y-scroll
+        r_htmx_chat = client.get("/tab/chat", headers={"HX-Request": "true"})
+        self.assertEqual(r_htmx_chat.status_code, 200)
+        self.assertIn('id="tab-content"', r_htmx_chat.text)
+        self.assertIn('id="chat-main-area"', r_htmx_chat.text)
+        self.assertIn("overflow-y-scroll", r_htmx_chat.text)
+
 
 if __name__ == "__main__":
     unittest.main()

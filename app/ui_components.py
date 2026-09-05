@@ -97,6 +97,7 @@ def TabNavigation(active_tab: str = "chat", **kwargs):
                     href="/?tab=chat",
                     hx_get="/tab/chat",
                     hx_target="#tab-content",
+                    hx_swap="outerHTML",
                     hx_push_url="true",
                     cls=chat_btn_cls,
                 )(
@@ -108,6 +109,7 @@ def TabNavigation(active_tab: str = "chat", **kwargs):
                     href="/?tab=ingest",
                     hx_get="/tab/ingest",
                     hx_target="#tab-content",
+                    hx_swap="outerHTML",
                     hx_push_url="true",
                     cls=ingest_btn_cls,
                 )(
@@ -831,7 +833,7 @@ def ChatMainArea(messages: Optional[List[ChatMessageRecord]] = None, active_chat
 
     content_children = turns if turns else [WelcomeMessage()]
 
-    base_cls = "flex-1 flex flex-col min-h-0 h-full p-4 md:px-6 md:py-4 overflow-y-auto scroll-smooth"
+    base_cls = "flex-1 flex flex-col min-h-0 h-full p-4 md:px-6 md:py-4 overflow-y-scroll scroll-smooth"
     if cls:
         base_cls = f"{base_cls} {cls}"
 

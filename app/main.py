@@ -48,30 +48,64 @@ rag_pipeline = RAGPipeline(hybrid_searcher=hybrid_searcher, ollama_client=ollama
 app, rt = fast_app(
     hdrs=[
         *ui.Theme.blue.headers(),
-        # Custom CSS for full-page layout, smooth scrolling, and visible modern scrollbars
+        # Custom CSS for full-page layout, smooth scrolling, and prominent modern scrollbars
         Style("""
         html, body {
             height: 100%;
             margin: 0;
             padding: 0;
         }
-        #tab-content {
+
+        /* Universal high-contrast visible scrollbars across all browsers and both pages */
+        * {
             scrollbar-width: thin;
-            scrollbar-color: rgba(100, 116, 139, 0.45) transparent;
+            scrollbar-color: #94a3b8 #f1f5f9;
         }
-        #tab-content::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
+        .dark *, [data-theme="dark"] * {
+            scrollbar-color: #64748b #1e293b;
         }
-        #tab-content::-webkit-scrollbar-track {
-            background: transparent;
+
+        /* WebKit / Chromium (Chrome, Edge, Brave, Opera, Safari) */
+        ::-webkit-scrollbar {
+            width: 10px;
+            height: 10px;
         }
-        #tab-content::-webkit-scrollbar-thumb {
-            background: rgba(100, 116, 139, 0.4);
-            border-radius: 4px;
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+            border-radius: 6px;
         }
-        #tab-content::-webkit-scrollbar-thumb:hover {
-            background: rgba(100, 116, 139, 0.7);
+        .dark ::-webkit-scrollbar-track, [data-theme="dark"] ::-webkit-scrollbar-track {
+            background: #1e293b;
+            border-radius: 6px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #94a3b8;
+            border-radius: 6px;
+            border: 2px solid #f1f5f9;
+        }
+        .dark ::-webkit-scrollbar-thumb, [data-theme="dark"] ::-webkit-scrollbar-thumb {
+            background: #64748b;
+            border: 2px solid #1e293b;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #64748b;
+        }
+        .dark ::-webkit-scrollbar-thumb:hover, [data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        /* Dedicated container scrollbars and stable gutter on both pages */
+        #tab-content.scroll-page {
+            overflow-y: scroll !important;
+            scrollbar-gutter: stable;
+        }
+        #chat-main-area {
+            overflow-y: scroll !important;
+            scrollbar-gutter: stable;
+        }
+        #chat-sidebar-list {
+            overflow-y: auto !important;
+            scrollbar-gutter: stable;
         }
         """),
         # HTMX SSE Extension
@@ -79,12 +113,12 @@ app, rt = fast_app(
         # Auto-scroll & SSE close handling
         Script("""
         document.addEventListener('htmx:afterSwap', function(evt) {
-            const tabContent = document.getElementById('tab-content');
-            if (tabContent && evt.detail && evt.detail.target) {
+            const chatMainArea = document.getElementById('chat-main-area');
+            if (chatMainArea && evt.detail && evt.detail.target) {
                 if (evt.detail.target.id === 'chat-history' || evt.detail.target.closest('#chat-history')) {
-                    const isNearBottom = tabContent.scrollHeight - tabContent.scrollTop - tabContent.clientHeight < 180;
+                    const isNearBottom = chatMainArea.scrollHeight - chatMainArea.scrollTop - chatMainArea.clientHeight < 240;
                     if (isNearBottom) {
-                        tabContent.scrollTop = tabContent.scrollHeight;
+                        chatMainArea.scrollTop = chatMainArea.scrollHeight;
                     }
                 }
             }
@@ -107,7 +141,7 @@ def MainLayout(active_tab: str = "chat", active_chat_id: Optional[str] = None, o
     if active == "ingest":
         content = IngestionTab(stats)
         page_title = "Ingest Sources | Local Confidential RAG"
-        tab_content_cls = "flex-1 overflow-y-auto min-h-0 scroll-smooth"
+        tab_content_cls = "flex-1 overflow-y-scroll min-h-0 scroll-smooth scroll-page"
     else:
         chats = store.list_chats()
         messages = store.get_chat_messages(active_chat_id) if active_chat_id else []
@@ -151,16 +185,23 @@ async def get_tab(tab_name: str, req: Request, chat_id: Optional[str] = None):
     stats = store.get_collection_stats()
     if active == "ingest":
         content = IngestionTab(stats)
+        tab_content_cls = "flex-1 overflow-y-scroll min-h-0 scroll-smooth scroll-page"
     else:
         chats = store.list_chats()
         messages = store.get_chat_messages(chat_id) if chat_id else []
         content = ChatTab(chats=chats, active_chat_id=chat_id, messages=messages)
+        tab_content_cls = "flex-1 overflow-hidden min-h-0"
 
-    return Div(
+    tab_content = Div(
+        id="tab-content",
+        cls=tab_content_cls,
+    )(content)
+
+    return (
         Title(page_title, id="app-page-title"),
         Script(f'document.title = "{page_title}";'),
         TabNavigation(active_tab=active, hx_swap_oob="true"),
-        content,
+        tab_content,
     )
 
 
@@ -383,7 +424,7 @@ async def post_edit_message(
         ChatSidebar(chats=chats, active_chat_id=chat_id, hx_swap_oob="true"),
         Div(
             id="chat-main-area",
-            cls="flex-1 flex flex-col min-h-0 h-full p-4 md:px-6 md:py-4 overflow-y-auto scroll-smooth",
+            cls="flex-1 flex flex-col min-h-0 h-full p-4 md:px-6 md:py-4 overflow-y-scroll scroll-smooth",
         )(
             Div(cls="sticky top-0 z-10 bg-base-200/95 backdrop-blur-sm pt-1 pb-3 mb-2 flex-shrink-0")(
                 Div(cls="flex flex-wrap items-center justify-between gap-3 p-3 bg-base-100 border border-base-300 rounded-xl shadow-sm text-xs w-full")(
