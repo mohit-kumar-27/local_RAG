@@ -68,9 +68,13 @@ class OllamaClient:
         all_embeddings: List[List[float]] = []
         batch_size = max(1, EMBEDDING_BATCH_SIZE)
 
+        # Defensive truncation: nomic-embed-text context limit is 2048 tokens (~7500-8000 chars)
+        # Cap any text to 7000 chars (~1750 tokens) to guarantee Ollama never errors with 500
+        safe_texts = [t[:7000] if len(t) > 7000 else t for t in texts]
+
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            for i in range(0, len(texts), batch_size):
-                batch = texts[i : i + batch_size]
+            for i in range(0, len(safe_texts), batch_size):
+                batch = safe_texts[i : i + batch_size]
                 # Modern Ollama batch endpoint: /api/embed
                 embed_url = f"{self.base_url}/api/embed"
                 payload = {

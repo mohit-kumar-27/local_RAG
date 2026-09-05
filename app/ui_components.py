@@ -287,19 +287,23 @@ def IngestProgressUpdateCard(
             Span(cls="font-mono text-xs font-bold text-primary")(f"{progress}%"),
         ),
         ui.Progress(value=progress, max=100, cls="w-full h-2"),
-        error_message and Div(cls="uk-alert uk-alert-danger text-xs p-3 rounded-lg font-mono")(error_message),
+        Div(cls="uk-alert uk-alert-danger text-xs p-3 rounded-lg font-mono")(error_message) if error_message else None,
         Div(cls="bg-base-300 rounded-lg p-3")(
             Pre(cls="text-xs font-mono text-base-content/80 whitespace-pre-wrap overflow-x-auto max-h-36")(
                 log_content
             )
         ),
-        status == "completed" and Div(cls="pt-2 flex justify-end")(
-            Button(
-                hx_get="/api/stats",
-                hx_target="#collection-stats-card",
-                hx_swap="outerHTML",
-                cls="uk-button uk-button-primary uk-button-sm",
-            )("Update Stats"),
+        (
+            Div(cls="pt-2 flex justify-end")(
+                Button(
+                    hx_get="/api/stats",
+                    hx_target="#collection-stats-card",
+                    hx_swap="outerHTML",
+                    cls="uk-button uk-button-primary uk-button-sm",
+                )("Update Stats")
+            )
+            if status == "completed"
+            else None
         ),
     )
 
@@ -334,9 +338,9 @@ def CitationDrawer(documents_with_scores: List[Tuple[Document, float]]):
                     doc.source_url
                 ),
             ),
-            doc.file_path and Div(cls="text-base-content/70 text-[11px]")(f"File Path: {doc.file_path}"),
-            doc.sprint_id and Div(cls="text-base-content/70 text-[11px]")(f"Sprint: {doc.sprint_id}"),
-            doc.work_item_id and Div(cls="text-base-content/70 text-[11px]")(f"Work Item ID: {doc.work_item_id}"),
+            Div(cls="text-base-content/70 text-[11px]")(f"File Path: {doc.file_path}") if doc.file_path else None,
+            Div(cls="text-base-content/70 text-[11px]")(f"Sprint: {doc.sprint_id}") if doc.sprint_id else None,
+            Div(cls="text-base-content/70 text-[11px]")(f"Work Item ID: {doc.work_item_id}") if doc.work_item_id else None,
             Pre(cls="bg-base-300 p-3 rounded text-[11px] whitespace-pre-wrap overflow-x-auto max-h-48 border border-base-content/10")(
                 doc.content
             ),

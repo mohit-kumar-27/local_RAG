@@ -116,32 +116,35 @@ async def execute_ingestion(
         total_batches = (len(docs_to_embed) + batch_size - 1) // batch_size
         texts_to_embed = [d.content for d in docs_to_embed]
 
+        total_inserted = 0
         for b_idx in range(total_batches):
             start = b_idx * batch_size
             end = min(start + batch_size, len(docs_to_embed))
             batch_texts = texts_to_embed[start:end]
 
             batch_embeddings = await ollama.embed_texts(batch_texts)
-            for d, emb in zip(docs_to_embed[start:end], batch_embeddings):
+            current_batch_docs = docs_to_embed[start:end]
+            for d, emb in zip(current_batch_docs, batch_embeddings):
                 d.embedding = emb
 
-            # Update progress between 40% and 85%
-            pct = 40 + int(45 * ((b_idx + 1) / total_batches))
-            job.progress = pct
+            # Incrementally persist each batch to DuckDB so progress is never lost on interruption
+            ins = store.insert_documents(current_batch_docs)
+            total_inserted += ins
+
+            # Accurate progress percentage directly reflecting chunks embedded
+            pct = int(100 * end / len(docs_to_embed))
+            job.progress = min(pct, 99)
             job.stage = f"Embedding chunks: {end}/{len(docs_to_embed)} (batch {b_idx + 1}/{total_batches})..."
 
-        job.add_log(f"Generated {len(docs_to_embed)} vector embeddings.")
+        job.add_log(f"Generated {len(docs_to_embed)} vector embeddings and committed to DuckDB.")
 
-        # Step 4: Insert into DuckDB
-        job.stage = "Writing to DuckDB and rebuilding FTS index..."
-        job.progress = 90
-        inserted_count = store.insert_documents(docs_to_embed)
-        job.new_indexed = inserted_count
-
+        # Step 4: Finalize and rebuild FTS
+        job.stage = "Optimizing search indexes..."
         job.progress = 100
-        job.stage = "Complete"
+        job.new_indexed = total_inserted
         job.status = "completed"
-        job.add_log(f"Successfully indexed {inserted_count} chunks into DuckDB.")
+        job.stage = "Complete"
+        job.add_log(f"Successfully indexed {total_inserted} chunks into DuckDB.")
 
     except Exception as e:
         job.status = "failed"

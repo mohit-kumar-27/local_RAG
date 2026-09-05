@@ -81,6 +81,13 @@ def is_ignored_path(rel_path: str) -> bool:
         r"(^|[/\\])dist([/\\]|$)",
         r"(^|[/\\])build([/\\]|$)",
         r"(^|[/\\])target([/\\]|$)",
+        r"package-lock\.json$",
+        r"yarn\.lock$",
+        r"pnpm-lock\.yaml$",
+        r"Cargo\.lock$",
+        r"poetry\.lock$",
+        r"\.min\.(js|css)$",
+        r"\.map$",
         r"\.env($|\.)",
         r"\.pem$",
         r"\.key$",
@@ -206,9 +213,19 @@ class CodeChunker:
         while maintaining line numbers and file headers.
         """
         documents: List[Document] = []
-        lines = code.splitlines()
-        if not lines:
+        raw_lines = code.splitlines()
+        if not raw_lines:
             return documents
+
+        # Sanitize lines: break any gigantic lines (e.g. minified JS, base64 strings) so no chunk can blow up
+        max_line_chars = max(500, self.max_tokens * 3)
+        lines: List[str] = []
+        for l in raw_lines:
+            if len(l) > max_line_chars:
+                for i in range(0, len(l), max_line_chars):
+                    lines.append(l[i : i + max_line_chars])
+            else:
+                lines.append(l)
 
         current_lines: List[str] = []
         start_idx = 0
@@ -254,9 +271,72 @@ class CodeChunker:
 
         return documents
 
+    def chunk_notebook(self, content: str, file_path: str, source_url: str) -> List[Document]:
+        """
+        Parses Jupyter Notebook (.ipynb) files:
+        - Extracts markdown documentation cells and Python code cells.
+        - Completely strips execution outputs, base64 images, and raw stdout/stderr blobs.
+        - Chunks code cells and markdown cells cleanly with line/cell context.
+        """
+        import json
+        documents: List[Document] = []
+        try:
+            nb = json.loads(content)
+        except Exception:
+            # Fallback if notebook is malformed
+            return self.chunk_generic_code(content, file_path, source_url)
+
+        cells = nb.get("cells", [])
+        for idx, cell in enumerate(cells, start=1):
+            cell_type = cell.get("cell_type", "")
+            if cell_type not in ("code", "markdown"):
+                continue
+
+            raw_source = cell.get("source", "")
+            if isinstance(raw_source, list):
+                source_text = "".join(raw_source)
+            else:
+                source_text = str(raw_source)
+
+            source_text = source_text.strip()
+            if not source_text:
+                continue
+
+            cell_tokens = count_tokens(source_text)
+            if cell_tokens <= self.max_tokens:
+                header = f"# Notebook: {file_path} (Cell {idx} - {cell_type})\n"
+                doc_content = header + source_text
+                documents.append(
+                    Document(
+                        content=doc_content,
+                        source_url=source_url,
+                        doc_type="code" if cell_type == "code" else "confluence",
+                        file_path=file_path,
+                        metadata={
+                            "cell_index": idx,
+                            "cell_type": cell_type,
+                            "token_count": count_tokens(doc_content),
+                        },
+                    )
+                )
+            else:
+                # Sub-chunk oversized cell
+                sub_chunks = self.chunk_generic_code(
+                    source_text,
+                    file_path=file_path,
+                    source_url=source_url,
+                    context_prefix=f"# Context: Notebook {file_path} (Cell {idx} - {cell_type})\n",
+                )
+                documents.extend(sub_chunks)
+
+        return documents
+
     def chunk_file(self, content: str, file_path: str, source_url: str) -> List[Document]:
-        """Routes file content to AST chunker (if Python) or generic structural chunker."""
-        if file_path.lower().endswith(".py"):
+        """Routes file content to notebook parser, AST chunker (if Python), or generic structural chunker."""
+        lower = file_path.lower()
+        if lower.endswith(".ipynb"):
+            return self.chunk_notebook(content, file_path, source_url)
+        elif lower.endswith(".py"):
             return self.chunk_python_file(content, file_path, source_url)
         else:
             return self.chunk_generic_code(content, file_path, source_url)
