@@ -16,7 +16,7 @@ from config import LOW_RAM_MODE, get_active_llm_model
 from ingestion.base import Document
 
 
-def AppHeader(ollama_connected: bool = True, current_model: str = ""):
+def AppHeader(ollama_connected: bool = True, current_model: str = "", active_tab: str = "chat"):
     """Header bar with title, confidential security badge, and RAM mode indicators."""
     status_color = "uk-badge-success" if ollama_connected else "uk-badge-danger"
     status_text = "Ollama Active" if ollama_connected else "Ollama Disconnected"
@@ -24,7 +24,7 @@ def AppHeader(ollama_connected: bool = True, current_model: str = ""):
     ram_mode_label = "3B Low-RAM" if LOW_RAM_MODE else "8B Standard"
     ram_btn_style = "uk-button-secondary" if LOW_RAM_MODE else "uk-button-default"
 
-    return Div(cls="flex flex-col md:flex-row justify-between items-start md:items-center py-4 px-6 bg-base-200 border-b border-base-300 gap-4")(
+    return Div(cls="flex flex-col md:flex-row justify-between items-start md:items-center py-4 px-6 bg-base-200 border-b border-base-300 gap-4 flex-shrink-0")(
         Div(cls="flex items-center space-x-3")(
             Div(cls="p-2 bg-primary text-primary-content rounded-lg font-mono font-bold text-xl")("RAG"),
             Div(
@@ -37,6 +37,7 @@ def AppHeader(ollama_connected: bool = True, current_model: str = ""):
             Span(cls=f"uk-badge {status_color} font-mono text-xs")(status_text),
             Span(cls="uk-badge uk-badge-secondary font-mono text-xs")(f"Model: {current_model or get_active_llm_model()}"),
             Form(action="/api/toggle_ram_mode", method="post", hx_post="/api/toggle_ram_mode", hx_target="#main-content")(
+                Input(type="hidden", name="current_tab", value=active_tab),
                 Button(type="submit", cls=f"uk-button {ram_btn_style} uk-button-xs font-mono")(
                     f"RAM: {ram_mode_label} (Toggle)"
                 )
@@ -45,38 +46,73 @@ def AppHeader(ollama_connected: bool = True, current_model: str = ""):
     )
 
 
-def TabNavigation(active_tab: str = "chat"):
-    """Tab selector for Ingestion and Chatbot views."""
-    ingest_active = "uk-active font-bold border-b-2 border-primary text-primary" if active_tab == "ingest" else "text-base-content/70 hover:text-base-content"
-    chat_active = "uk-active font-bold border-b-2 border-primary text-primary" if active_tab == "chat" else "text-base-content/70 hover:text-base-content"
+def TabNavigation(active_tab: str = "chat", **kwargs):
+    """
+    Segmented pill navigation for Ingestion and Chatbot views.
+    Distinct, high-contrast, and completely consistent across page reloads and HTMX swaps.
+    """
+    is_chat = (active_tab == "chat")
+    is_ingest = (active_tab == "ingest")
 
-    return Div(cls="border-b border-base-300 bg-base-100 px-6 pt-2")(
-        Ul(cls="flex space-x-8 text-sm")(
-            Li(
+    chat_btn_cls = (
+        "bg-primary text-primary-content font-bold shadow-sm shadow-primary/40 rounded-lg px-4 py-2 "
+        "flex items-center gap-2 transition-all duration-150 transform scale-[1.02] cursor-default"
+        if is_chat else
+        "text-base-content/70 hover:text-base-content hover:bg-base-300/60 font-medium rounded-lg px-4 py-2 "
+        "flex items-center gap-2 transition-all duration-150"
+    )
+
+    ingest_btn_cls = (
+        "bg-primary text-primary-content font-bold shadow-sm shadow-primary/40 rounded-lg px-4 py-2 "
+        "flex items-center gap-2 transition-all duration-150 transform scale-[1.02] cursor-default"
+        if is_ingest else
+        "text-base-content/70 hover:text-base-content hover:bg-base-300/60 font-medium rounded-lg px-4 py-2 "
+        "flex items-center gap-2 transition-all duration-150"
+    )
+
+    chat_dot = Span(cls="w-2 h-2 rounded-full bg-white animate-pulse") if is_chat else None
+    ingest_dot = Span(cls="w-2 h-2 rounded-full bg-white animate-pulse") if is_ingest else None
+
+    return Div(
+        id="main-tab-nav",
+        cls="bg-base-100 border-b border-base-300 px-6 py-2.5 flex items-center justify-between flex-shrink-0",
+        **kwargs,
+    )(
+        Div(cls="flex items-center gap-3")(
+            Span(cls="text-xs font-semibold uppercase tracking-wider text-base-content/50")("Views:"),
+            Div(cls="bg-base-200 p-1 rounded-xl inline-flex border border-base-300 shadow-inner gap-1")(
                 A(
                     href="/?tab=chat",
                     hx_get="/tab/chat",
                     hx_target="#tab-content",
                     hx_push_url="true",
-                    cls=f"inline-flex items-center py-3 px-1 transition-all {chat_active}",
+                    cls=chat_btn_cls,
                 )(
-                    Span(cls="mr-2")("💬"),
-                    "Ask Chatbot",
-                )
-            ),
-            Li(
+                    Span(cls="text-base")("💬"),
+                    Span("Ask Chatbot"),
+                    chat_dot,
+                ),
                 A(
                     href="/?tab=ingest",
                     hx_get="/tab/ingest",
                     hx_target="#tab-content",
                     hx_push_url="true",
-                    cls=f"inline-flex items-center py-3 px-1 transition-all {ingest_active}",
+                    cls=ingest_btn_cls,
                 )(
-                    Span(cls="mr-2")("📥"),
-                    "Ingest Sources",
-                )
+                    Span(cls="text-base")("📥"),
+                    Span("Ingest Sources"),
+                    ingest_dot,
+                ),
             ),
-        )
+        ),
+        # Current active page breadcrumb indicator
+        Div(cls="hidden sm:flex items-center gap-2 text-xs")(
+            Span(cls="text-base-content/50 font-medium")("Current Page:"),
+            Span(cls="px-2.5 py-1 bg-primary/10 text-primary border border-primary/20 rounded-md font-mono font-semibold flex items-center gap-1.5")(
+                Span(cls="w-1.5 h-1.5 rounded-full bg-primary"),
+                "💬 Chatbot & Context Q&A" if is_chat else "📥 Source Ingestion & Sync"
+            ),
+        ),
     )
 
 
@@ -382,7 +418,7 @@ def ChatTab():
             ),
         ),
 
-        # Chat input container - anchored at the bottom with spacious prompt box
+        # Chat input container - anchored at the bottom with sleek compact prompt box
         Div(cls="flex-shrink-0 pt-2")(
             Form(
                 id="chat-form",
@@ -394,22 +430,22 @@ def ChatTab():
                     const qInput = document.getElementById('query-input');
                     if (qInput) {
                         qInput.value = '';
-                        qInput.style.height = '64px';
+                        qInput.style.height = '44px';
                     }
                     const chatBox = document.getElementById('chat-history');
                     if (chatBox) {
                         chatBox.scrollTop = chatBox.scrollHeight;
                     }
                 """,
-                cls="w-full bg-base-100 border border-base-300 rounded-2xl shadow-md p-3 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-all",
+                cls="w-full bg-base-100 border border-base-300 rounded-2xl shadow-sm p-2.5 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-all",
             )(
-                Div(cls="flex flex-col gap-2")(
+                Div(cls="flex flex-col gap-1.5")(
                     Textarea(
                         id="query-input",
                         name="query",
                         required=True,
-                        rows=2,
-                        placeholder="Ask a technical question about your code, boards, or wiki... (Enter to send, Shift+Enter for new line)",
+                        rows=1,
+                        placeholder="Ask a technical question about your code, boards, or wiki... (Enter to send, Shift+Enter for newline)",
                         onkeydown="""
                             if (event.key === 'Enter' && !event.shiftKey) {
                                 event.preventDefault();
@@ -418,10 +454,10 @@ def ChatTab():
                                 }
                             }
                         """,
-                        oninput="this.style.height = 'auto'; this.style.height = Math.min(this.scrollHeight, 180) + 'px';",
-                        cls="w-full bg-transparent border-0 focus:outline-none focus:ring-0 text-sm text-base-content placeholder:text-base-content/50 resize-none py-1 px-2 leading-relaxed min-h-[64px] max-h-[180px]",
+                        oninput="this.style.height = 'auto'; this.style.height = Math.min(this.scrollHeight, 160) + 'px';",
+                        cls="w-full bg-transparent border-0 focus:outline-none focus:ring-0 text-sm text-base-content placeholder:text-base-content/50 resize-none py-1.5 px-2.5 leading-normal min-h-[44px] max-h-[160px]",
                     ),
-                    Div(cls="flex items-center justify-between pt-2 border-t border-base-200 text-xs text-base-content/60")(
+                    Div(cls="flex items-center justify-between pt-1.5 border-t border-base-200 text-xs text-base-content/60")(
                         Div(cls="flex items-center gap-1.5")(
                             Span(cls="text-[11px] hidden sm:inline")("Press"),
                             Span(cls="px-1.5 py-0.5 bg-base-200 border border-base-300 rounded text-[10px] font-mono text-base-content/80")("Enter ↵"),
@@ -432,7 +468,7 @@ def ChatTab():
                         Div(cls="flex items-center gap-2")(
                             Button(
                                 type="submit",
-                                cls="uk-button uk-button-primary uk-button-sm rounded-xl px-5 py-1.5 flex items-center gap-1.5 font-medium shadow-sm hover:shadow",
+                                cls="uk-button uk-button-primary uk-button-sm rounded-xl px-4 py-1 flex items-center gap-1.5 font-medium shadow-sm hover:shadow",
                             )(
                                 Span("Ask"),
                                 Span(cls="text-xs font-bold")("→"),

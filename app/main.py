@@ -11,7 +11,7 @@ import uuid
 from typing import Optional
 
 from fasthtml.common import (
-    Body, Div, FastHTML, Html, NotStr, P, Script, Span, fast_app, sse_message
+    Body, Div, FastHTML, Html, NotStr, P, Script, Span, Title, fast_app, sse_message
 )
 import mistletoe
 import monsterui.all as ui
@@ -42,6 +42,7 @@ rag_pipeline = RAGPipeline(hybrid_searcher=hybrid_searcher, ollama_client=ollama
 # Single FastHTML ASGI App
 app, rt = fast_app(
     hdrs=[
+        Title("Local Confidential RAG & Chatbot"),
         *ui.Theme.blue.headers(),
         # HTMX SSE Extension
         Script(src="https://unpkg.com/htmx-ext-sse@2.2.2/sse.js"),
@@ -67,11 +68,13 @@ app, rt = fast_app(
 def MainLayout(active_tab: str = "chat", ollama_ok: bool = True):
     """Main application shell with fixed full-viewport layout."""
     stats = store.get_collection_stats()
-    content = IngestionTab(stats) if active_tab == "ingest" else ChatTab()
+    active = "ingest" if active_tab == "ingest" else "chat"
+    content = IngestionTab(stats) if active == "ingest" else ChatTab()
+    page_title = "Ask Chatbot | Local Confidential RAG" if active == "chat" else "Ingest Sources | Local Confidential RAG"
 
-    return Div(id="main-content", cls="h-screen bg-base-200 text-base-content flex flex-col font-sans overflow-hidden")(
-        AppHeader(ollama_connected=ollama_ok, current_model=config.get_active_llm_model()),
-        TabNavigation(active_tab=active_tab),
+    return Title(page_title), Div(id="main-content", cls="h-screen bg-base-200 text-base-content flex flex-col font-sans overflow-hidden")(
+        AppHeader(ollama_connected=ollama_ok, current_model=config.get_active_llm_model(), active_tab=active),
+        TabNavigation(active_tab=active),
         Div(id="tab-content", cls="flex-1 flex flex-col min-h-0 overflow-hidden")(
             content
         ),
@@ -87,11 +90,16 @@ async def get(tab: Optional[str] = "chat"):
 
 @rt("/tab/{tab_name}")
 async def get_tab(tab_name: str):
-    """Swaps tab content via HTMX."""
-    if tab_name == "ingest":
-        stats = store.get_collection_stats()
-        return IngestionTab(stats)
-    return ChatTab()
+    """Swaps tab content and updates navigation active highlight out-of-band."""
+    active = "ingest" if tab_name == "ingest" else "chat"
+    page_title = "Ask Chatbot | Local Confidential RAG" if active == "chat" else "Ingest Sources | Local Confidential RAG"
+    stats = store.get_collection_stats()
+    content = IngestionTab(stats) if active == "ingest" else ChatTab()
+    return Div(
+        Title(page_title, hx_swap_oob="true"),
+        TabNavigation(active_tab=active, hx_swap_oob="true"),
+        content,
+    )
 
 
 @rt("/api/stats")
@@ -110,11 +118,12 @@ def post_clear():
 
 
 @rt("/api/toggle_ram_mode")
-async def post_toggle_ram():
-    """Toggles LOW_RAM_MODE between 8B and 3B models."""
+async def post_toggle_ram(current_tab: Optional[str] = "chat"):
+    """Toggles LOW_RAM_MODE between 8B and 3B models while preserving current active page."""
     config.LOW_RAM_MODE = not config.LOW_RAM_MODE
     ok, _, _ = await ollama.check_connection()
-    return MainLayout(active_tab="chat", ollama_ok=ok)
+    active = "ingest" if current_tab == "ingest" else "chat"
+    return MainLayout(active_tab=active, ollama_ok=ok)
 
 
 @rt("/api/ingest")
@@ -208,12 +217,14 @@ async def post_chat(
     encoded_doc_filter = urllib.parse.quote(doc_type_filter or "all")
     encoded_sprint = urllib.parse.quote(sprint_filter.strip() if sprint_filter else "")
 
-    # User message element
-    user_bubble = Div(cls="flex items-start justify-end space-x-3 w-full")(
-        Div(cls="bg-primary text-primary-content rounded-2xl p-4 shadow-sm max-w-2xl text-sm leading-relaxed whitespace-pre-wrap")(
-            P(query.strip())
-        ),
-        Div(cls="w-9 h-9 rounded-full bg-base-300 text-base-content flex-shrink-0 flex items-center justify-center font-bold text-xs shadow-sm")("YOU"),
+    # User message element - sleek, compact, formatted without excessive vertical height
+    user_bubble = Div(cls="flex items-start justify-end gap-2.5 w-full my-1.5")(
+        Div(
+            cls="bg-primary text-primary-content rounded-2xl rounded-tr-xs px-4 py-2.5 shadow-sm max-w-xl text-sm leading-relaxed whitespace-pre-wrap break-words font-normal"
+        )(query.strip()),
+        Div(
+            cls="w-7 h-7 rounded-full bg-primary/20 text-primary border border-primary/30 flex-shrink-0 flex items-center justify-center font-bold text-[10px] shadow-sm mt-0.5"
+        )("YOU"),
     )
 
     # Assistant SSE streaming placeholder element
