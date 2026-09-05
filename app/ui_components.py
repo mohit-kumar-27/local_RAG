@@ -171,7 +171,7 @@ def CollectionStatsCard(stats: Dict[str, Any]):
 
 def IngestionTab(stats: Dict[str, Any]):
     """Tab 1: Ingest Sources view with form, live SSE progress container, and stats."""
-    return Div(cls="max-w-5xl mx-auto py-6 px-4 space-y-6")(
+    return Div(cls="max-w-5xl mx-auto py-6 px-4 space-y-6 pb-16 w-full")(
         # Stats summary
         CollectionStatsCard(stats),
 
@@ -360,40 +360,42 @@ def CitationDrawer(documents_with_scores: List[Tuple[Document, float]]):
 
 def ChatTab():
     """Tab 2: Ask Chatbot view with message timeline, query input, filter bar, and citations."""
-    return Div(cls="flex-1 flex flex-col min-h-0 max-w-5xl w-full mx-auto p-4 md:px-6 md:py-4")(
-        # Filter row
-        Div(cls="flex flex-wrap items-center justify-between gap-3 p-3 bg-base-100 border border-base-300 rounded-xl mb-3 shadow-sm text-xs flex-shrink-0")(
-            Div(cls="flex items-center gap-2")(
-                Span(cls="font-semibold text-base-content/70 flex items-center gap-1.5")(
-                    Span("🔍"),
-                    "Target Scope:"
+    return Div(cls="max-w-5xl w-full mx-auto p-4 md:px-6 md:py-4 flex flex-col min-h-full")(
+        # Filter row - sticky at top with subtle backdrop blur
+        Div(cls="sticky top-0 z-10 bg-base-200/95 backdrop-blur-sm pt-1 pb-3 mb-2 flex-shrink-0")(
+            Div(cls="flex flex-wrap items-center justify-between gap-3 p-3 bg-base-100 border border-base-300 rounded-xl shadow-sm text-xs w-full")(
+                Div(cls="flex items-center gap-2")(
+                    Span(cls="font-semibold text-base-content/70 flex items-center gap-1.5")(
+                        Span("🔍"),
+                        "Target Scope:"
+                    ),
+                    Select(id="doc-type-filter", name="doc_type_filter", cls="uk-select uk-select-sm text-xs rounded-lg w-44 bg-base-200 border-base-300")(
+                        Option(value="all")("All Sources (Auto-route)"),
+                        Option(value="code")("Source Code Only"),
+                        Option(value="ticket")("ADO Work Items / Bugs"),
+                        Option(value="confluence")("Confluence Wiki Pages"),
+                    ),
                 ),
-                Select(id="doc-type-filter", name="doc_type_filter", cls="uk-select uk-select-sm text-xs rounded-lg w-44 bg-base-200 border-base-300")(
-                    Option(value="all")("All Sources (Auto-route)"),
-                    Option(value="code")("Source Code Only"),
-                    Option(value="ticket")("ADO Work Items / Bugs"),
-                    Option(value="confluence")("Confluence Wiki Pages"),
-                ),
-            ),
-            Div(cls="flex items-center gap-2")(
-                Span(cls="font-semibold text-base-content/70 flex items-center gap-1.5")(
-                    Span("🏷️"),
-                    "Sprint Filter:"
-                ),
-                Input(
-                    id="sprint-filter",
-                    name="sprint_filter",
-                    type="text",
-                    placeholder="e.g. Sprint 42 (optional)",
-                    cls="uk-input uk-input-sm text-xs rounded-lg w-48 bg-base-200 border-base-300",
+                Div(cls="flex items-center gap-2")(
+                    Span(cls="font-semibold text-base-content/70 flex items-center gap-1.5")(
+                        Span("🏷️"),
+                        "Sprint Filter:"
+                    ),
+                    Input(
+                        id="sprint-filter",
+                        name="sprint_filter",
+                        type="text",
+                        placeholder="e.g. Sprint 42 (optional)",
+                        cls="uk-input uk-input-sm text-xs rounded-lg w-48 bg-base-200 border-base-300",
+                    ),
                 ),
             ),
         ),
 
-        # Chat history container - occupies all remaining vertical space with smooth scrolling
+        # Chat history container - expands naturally in scrollable tab-content
         Div(
             id="chat-history",
-            cls="flex-1 min-h-0 overflow-y-auto space-y-4 pr-2 pb-4 scroll-smooth",
+            cls="space-y-4 pb-6 flex-1",
         )(
             # Welcome bubble
             Div(cls="flex items-start space-x-3")(
@@ -418,8 +420,8 @@ def ChatTab():
             ),
         ),
 
-        # Chat input container - anchored at the bottom with sleek compact prompt box
-        Div(cls="flex-shrink-0 pt-2")(
+        # Chat input container - sticky at bottom with sleek compact prompt box
+        Div(cls="sticky bottom-0 z-20 bg-base-200/95 backdrop-blur-md pt-2 pb-4 flex-shrink-0")(
             Form(
                 id="chat-form",
                 hx_post="/api/chat",
@@ -432,12 +434,12 @@ def ChatTab():
                         qInput.value = '';
                         qInput.style.height = '44px';
                     }
-                    const chatBox = document.getElementById('chat-history');
-                    if (chatBox) {
-                        chatBox.scrollTop = chatBox.scrollHeight;
+                    const tabContent = document.getElementById('tab-content');
+                    if (tabContent) {
+                        tabContent.scrollTop = tabContent.scrollHeight;
                     }
                 """,
-                cls="w-full bg-base-100 border border-base-300 rounded-2xl shadow-sm p-2.5 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-all",
+                cls="w-full bg-base-100 border border-base-300 rounded-2xl shadow-md p-2.5 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-all",
             )(
                 Div(cls="flex flex-col gap-1.5")(
                     Textarea(

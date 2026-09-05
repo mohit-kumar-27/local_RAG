@@ -11,10 +11,11 @@ import uuid
 from typing import Optional
 
 from fasthtml.common import (
-    Body, Div, FastHTML, Html, NotStr, P, Script, Span, Title, fast_app, sse_message
+    Body, Div, FastHTML, Html, NotStr, P, Script, Span, Style, Title, fast_app, sse_message
 )
 import mistletoe
 import monsterui.all as ui
+from starlette.requests import Request
 from starlette.responses import StreamingResponse
 
 import config
@@ -42,16 +43,46 @@ rag_pipeline = RAGPipeline(hybrid_searcher=hybrid_searcher, ollama_client=ollama
 # Single FastHTML ASGI App
 app, rt = fast_app(
     hdrs=[
-        Title("Local Confidential RAG & Chatbot"),
         *ui.Theme.blue.headers(),
+        # Custom CSS for full-page layout, smooth scrolling, and visible modern scrollbars
+        Style("""
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+        #tab-content {
+            scrollbar-width: thin;
+            scrollbar-color: rgba(100, 116, 139, 0.45) transparent;
+        }
+        #tab-content::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        #tab-content::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        #tab-content::-webkit-scrollbar-thumb {
+            background: rgba(100, 116, 139, 0.4);
+            border-radius: 4px;
+        }
+        #tab-content::-webkit-scrollbar-thumb:hover {
+            background: rgba(100, 116, 139, 0.7);
+        }
+        """),
         # HTMX SSE Extension
         Script(src="https://unpkg.com/htmx-ext-sse@2.2.2/sse.js"),
-        # Tailwind typography, auto-scroll & SSE close handling
+        # Auto-scroll & SSE close handling
         Script("""
         document.addEventListener('htmx:afterSwap', function(evt) {
-            const chatBox = document.getElementById('chat-history');
-            if (chatBox) {
-                chatBox.scrollTop = chatBox.scrollHeight;
+            const tabContent = document.getElementById('tab-content');
+            if (tabContent && evt.detail && evt.detail.target) {
+                if (evt.detail.target.id === 'chat-history' || evt.detail.target.closest('#chat-history')) {
+                    const isNearBottom = tabContent.scrollHeight - tabContent.scrollTop - tabContent.clientHeight < 180;
+                    if (isNearBottom) {
+                        tabContent.scrollTop = tabContent.scrollHeight;
+                    }
+                }
             }
         });
         document.addEventListener('htmx:sseClose', function(evt) {
@@ -66,16 +97,22 @@ app, rt = fast_app(
 
 
 def MainLayout(active_tab: str = "chat", ollama_ok: bool = True):
-    """Main application shell with fixed full-viewport layout."""
+    """Main application shell with full-viewport layout and scrollable tab content."""
     stats = store.get_collection_stats()
     active = "ingest" if active_tab == "ingest" else "chat"
     content = IngestionTab(stats) if active == "ingest" else ChatTab()
-    page_title = "Ask Chatbot | Local Confidential RAG" if active == "chat" else "Ingest Sources | Local Confidential RAG"
+    page_title = "Ingest Sources | Local Confidential RAG" if active == "ingest" else "Ask Chatbot | Local Confidential RAG"
 
-    return Title(page_title), Div(id="main-content", cls="h-screen bg-base-200 text-base-content flex flex-col font-sans overflow-hidden")(
+    return Title(page_title, id="app-page-title"), Script(f'document.title = "{page_title}";'), Div(
+        id="main-content",
+        cls="h-screen bg-base-200 text-base-content flex flex-col font-sans overflow-hidden",
+    )(
         AppHeader(ollama_connected=ollama_ok, current_model=config.get_active_llm_model(), active_tab=active),
         TabNavigation(active_tab=active),
-        Div(id="tab-content", cls="flex-1 flex flex-col min-h-0 overflow-hidden")(
+        Div(
+            id="tab-content",
+            cls="flex-1 overflow-y-auto min-h-0 scroll-smooth",
+        )(
             content
         ),
     )
@@ -89,14 +126,21 @@ async def get(tab: Optional[str] = "chat"):
 
 
 @rt("/tab/{tab_name}")
-async def get_tab(tab_name: str):
-    """Swaps tab content and updates navigation active highlight out-of-band."""
+async def get_tab(tab_name: str, req: Request):
+    """Swaps tab content, updates navigation active highlight, and sets page title."""
     active = "ingest" if tab_name == "ingest" else "chat"
-    page_title = "Ask Chatbot | Local Confidential RAG" if active == "chat" else "Ingest Sources | Local Confidential RAG"
+    page_title = "Ingest Sources | Local Confidential RAG" if active == "ingest" else "Ask Chatbot | Local Confidential RAG"
+
+    # If direct browser navigation to /tab/... without HTMX, return full layout
+    if not req.headers.get("HX-Request"):
+        ok, _, _ = await ollama.check_connection()
+        return MainLayout(active_tab=active, ollama_ok=ok)
+
     stats = store.get_collection_stats()
     content = IngestionTab(stats) if active == "ingest" else ChatTab()
     return Div(
-        Title(page_title, hx_swap_oob="true"),
+        Title(page_title, id="app-page-title"),
+        Script(f'document.title = "{page_title}";'),
         TabNavigation(active_tab=active, hx_swap_oob="true"),
         content,
     )
