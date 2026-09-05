@@ -251,6 +251,11 @@ class AdoRepoLoader(BaseLoader):
                 # Fallback without explicit branch
                 fallback_cmd = ["git", "clone", "--depth", "1", clone_url, str(target_dir)]
                 subprocess.run(fallback_cmd, capture_output=True, text=True, check=True, timeout=120)
+        else:
+            try:
+                subprocess.run(["git", "pull", "--depth", "1"], cwd=str(target_dir), capture_output=True, text=True, timeout=60)
+            except Exception:
+                pass
 
         chunker = CodeChunker()
         documents: List[Document] = []
@@ -276,3 +281,101 @@ class AdoRepoLoader(BaseLoader):
                     continue
 
         return documents
+
+    def load_incremental(
+        self,
+        store: Optional[Any] = None,
+    ) -> Tuple[List[Document], List[str], List[str]]:
+        """
+        Incrementally pulls ADO repository updates and processes ONLY modified, added, and deleted files.
+        Deletes stale chunks for modified/deleted files and re-chunks only new content.
+        Returns: (new_or_modified_documents, modified_files, deleted_files)
+        """
+        target_dir = REPOS_CACHE_DIR / f"ado_{self.org}_{self.project}_{self.repo_name}"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        clone_url = self._get_clone_url()
+
+        if not (target_dir / ".git").exists():
+            # First time: full clone
+            cmd = ["git", "clone", "--depth", "1", "--branch", self.branch, clone_url, str(target_dir)]
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            if res.returncode != 0:
+                fallback_cmd = ["git", "clone", "--depth", "1", clone_url, str(target_dir)]
+                subprocess.run(fallback_cmd, capture_output=True, text=True, check=True, timeout=120)
+            return asyncio.run(self.load()) if not asyncio.get_event_loop().is_running() else [], [], []
+
+        old_commit = "head"
+        try:
+            res = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(target_dir), capture_output=True, text=True)
+            if res.returncode == 0:
+                old_commit = res.stdout.strip()
+        except Exception:
+            pass
+
+        try:
+            subprocess.run(["git", "pull", "--depth", "1"], cwd=str(target_dir), capture_output=True, text=True, timeout=60)
+        except Exception:
+            pass
+
+        new_commit = old_commit
+        try:
+            res = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(target_dir), capture_output=True, text=True)
+            if res.returncode == 0:
+                new_commit = res.stdout.strip()
+        except Exception:
+            pass
+
+        if old_commit == new_commit and old_commit != "head":
+            return [], [], []
+
+        modified_files: List[str] = []
+        deleted_files: List[str] = []
+        added_files: List[str] = []
+
+        try:
+            diff_res = subprocess.run(
+                ["git", "diff", "--name-status", old_commit, new_commit],
+                cwd=str(target_dir),
+                capture_output=True,
+                text=True,
+            )
+            if diff_res.returncode == 0:
+                for line in diff_res.stdout.splitlines():
+                    parts = line.strip().split("\t")
+                    if not parts:
+                        continue
+                    status = parts[0]
+                    file_name = parts[1] if len(parts) > 1 else ""
+                    if is_ignored_path(file_name):
+                        continue
+                    if status.startswith("M"):
+                        modified_files.append(file_name)
+                    elif status.startswith("D"):
+                        deleted_files.append(file_name)
+                    elif status.startswith("A"):
+                        added_files.append(file_name)
+        except Exception:
+            pass
+
+        if store:
+            for d_file in deleted_files + modified_files:
+                norm_d_file = os.path.normpath(d_file)
+                store.delete_documents_by_file(self.repo_url, norm_d_file)
+
+        chunker = CodeChunker()
+        new_docs: List[Document] = []
+        for file_to_chunk in modified_files + added_files:
+            abs_path = target_dir / file_to_chunk
+            if not abs_path.exists() or is_binary_file(abs_path):
+                continue
+            try:
+                with open(abs_path, "r", encoding="utf-8", errors="replace") as f:
+                    code = f.read()
+                norm_rel = os.path.normpath(file_to_chunk)
+                source_url = f"https://dev.azure.com/{self.org}/{self.project}/_git/{self.repo_name}?path={norm_rel.replace(chr(92), '/')}"
+                docs = chunker.chunk_file(code, file_path=norm_rel, source_url=source_url)
+                new_docs.extend(docs)
+            except Exception:
+                continue
+
+        return new_docs, modified_files, deleted_files
