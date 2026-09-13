@@ -57,6 +57,7 @@ EMBEDDING_BATCH_SIZE: int = int(os.getenv("EMBEDDING_BATCH_SIZE", "16"))
 # --- Reranker Configuration ---
 # Uses FlashRank by default (CPU ONNX, <100MB RAM, zero GPU dependency)
 RERANKER_MODEL: str = os.getenv("RERANKER_MODEL", "flashrank")
+FLASHRANK_CACHE_DIR: Path = Path(os.getenv("FLASHRANK_CACHE_DIR", str(BASE_DIR / ".flashrank_cache")))
 
 # --- Storage Configuration ---
 DUCKDB_PATH: Path = Path(os.getenv("DUCKDB_PATH", str(BASE_DIR / "data" / "duckdb" / "store.duckdb")))

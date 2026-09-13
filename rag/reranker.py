@@ -4,11 +4,13 @@ via the rerankers library. Configurable to cross-encoder models with zero code c
 Strictly local and confidential: no external API calls.
 """
 
+import os
+from pathlib import Path
 from typing import Any, List, Optional, Tuple
 
 from rerankers import Reranker
 
-from config import RERANKER_MODEL
+from config import BASE_DIR, FLASHRANK_CACHE_DIR, RERANKER_MODEL
 from ingestion.base import Document
 
 
@@ -18,24 +20,62 @@ class LocalReranker:
     Ensures zero telemetry and zero outbound cloud API calls.
     """
 
-    def __init__(self, model_name: str = RERANKER_MODEL):
+    def __init__(
+        self,
+        model_name: str = RERANKER_MODEL,
+        cache_dir: Optional[str] = None,
+    ):
         self.model_name = model_name
+        self.cache_dir = cache_dir or self._resolve_cache_dir()
         self._ranker: Optional[Any] = None
+        self._init_attempted: bool = False
+
+    @staticmethod
+    def _resolve_cache_dir() -> str:
+        """Determines best cache directory across environments."""
+        env_dir = os.getenv("FLASHRANK_CACHE_DIR")
+        if env_dir:
+            return env_dir
+        if FLASHRANK_CACHE_DIR.exists():
+            return str(FLASHRANK_CACHE_DIR.resolve())
+        local_cache = Path("./.flashrank_cache")
+        if local_cache.exists():
+            return str(local_cache.resolve())
+        user_cache = Path.home() / ".cache" / "flashrank"
+        user_cache.mkdir(parents=True, exist_ok=True)
+        return str(user_cache)
 
     def _get_ranker(self):
-        if self._ranker is None:
-            # Initialize local ranker (default: flashrank)
-            try:
-                self._ranker = Reranker(self.model_name, verbose=0)
-            except Exception as e:
-                # Fallback directly to flashrank ranker
-                try:
-                    from flashrank import Ranker
-                    self._ranker = Ranker()
-                except Exception:
-                    print(f"Warning: Reranker initialization failed: {e}")
-                    self._ranker = None
-        return self._ranker
+        if self._ranker is not None:
+            return self._ranker
+        if self._init_attempted:
+            return None
+
+        self._init_attempted = True
+        # Try initializing rerankers.Reranker with designated cache directory
+        try:
+            self._ranker = Reranker(self.model_name, verbose=0, cache_dir=self.cache_dir)
+            return self._ranker
+        except Exception:
+            pass
+
+        # Fallback directly to native flashrank ranker
+        try:
+            from flashrank import Ranker
+            self._ranker = Ranker()
+            return self._ranker
+        except Exception as e:
+            print(f"Warning: Reranker initialization failed: {e}. Falling back to initial ranking.")
+            self._ranker = None
+            return None
+
+    def prewarm(self) -> bool:
+        """Pre-warms the reranker at startup so chat queries don't stall on first run."""
+        try:
+            ranker = self._get_ranker()
+            return ranker is not None
+        except Exception:
+            return False
 
     def rerank(
         self, query: str, documents: List[Document], top_k: int = 5

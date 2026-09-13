@@ -4,6 +4,7 @@ via Reciprocal Rank Fusion (RRF) and FlashRank re-ranking.
 Includes query intent routing for metadata filtering.
 """
 
+import asyncio
 import re
 from typing import Dict, List, Optional, Tuple
 
@@ -137,6 +138,8 @@ class HybridSearcher:
         if not candidate_docs:
             return []
 
-        # 5. Local FlashRank Re-ranking
-        reranked = self.reranker.rerank(query=query, documents=candidate_docs, top_k=top_k)
+        # 5. Local FlashRank Re-ranking (executed in worker thread to prevent event loop blocking)
+        reranked = await asyncio.to_thread(
+            self.reranker.rerank, query=query, documents=candidate_docs, top_k=top_k
+        )
         return reranked

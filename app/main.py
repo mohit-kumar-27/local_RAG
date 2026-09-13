@@ -41,6 +41,7 @@ from rag.reranker import LocalReranker
 store = DuckDBStore()
 ollama = OllamaClient()
 reranker = LocalReranker()
+reranker.prewarm()
 hybrid_searcher = HybridSearcher(store=store, ollama_client=ollama, reranker=reranker)
 rag_pipeline = RAGPipeline(hybrid_searcher=hybrid_searcher, ollama_client=ollama)
 
