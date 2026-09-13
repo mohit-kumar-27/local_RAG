@@ -22,10 +22,14 @@ class LocalReranker:
 
     def __init__(
         self,
-        model_name: str = RERANKER_MODEL,
+        model_name: Optional[str] = None,
         cache_dir: Optional[str] = None,
     ):
-        self.model_name = model_name
+        chosen = model_name or RERANKER_MODEL
+        # Disallow generic alias to prevent library default shifts
+        if not chosen or chosen.lower() in ("flashrank", "default"):
+            chosen = "ms-marco-TinyBERT-L-2-v2"
+        self.model_name = chosen
         self.cache_dir = cache_dir or self._resolve_cache_dir()
         self._ranker: Optional[Any] = None
         self._init_attempted: bool = False
@@ -52,20 +56,25 @@ class LocalReranker:
             return None
 
         self._init_attempted = True
-        # Try initializing rerankers.Reranker with designated cache directory
+        # Initialize rerankers.Reranker with explicit model name and designated cache directory
         try:
-            self._ranker = Reranker(self.model_name, verbose=0, cache_dir=self.cache_dir)
+            self._ranker = Reranker(
+                model_name=self.model_name,
+                model_type="flashrank",
+                verbose=0,
+                cache_dir=self.cache_dir,
+            )
             return self._ranker
         except Exception:
             pass
 
-        # Fallback directly to native flashrank ranker
+        # Fallback directly to native flashrank ranker with explicit model name and cache directory
         try:
             from flashrank import Ranker
-            self._ranker = Ranker()
+            self._ranker = Ranker(model_name=self.model_name, cache_dir=self.cache_dir)
             return self._ranker
         except Exception as e:
-            print(f"Warning: Reranker initialization failed: {e}. Falling back to initial ranking.")
+            print(f"Warning: Reranker initialization failed for model '{self.model_name}': {e}. Falling back to initial ranking.")
             self._ranker = None
             return None
 
