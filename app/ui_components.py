@@ -1081,10 +1081,10 @@ def ChatMainArea(messages: Optional[List[ChatMessageRecord]] = None, active_chat
                             Span(cls="px-1.5 py-0.5 bg-base-200 border border-base-300 rounded text-[10px] font-mono text-base-content/80")("Shift + Enter"),
                             Span(cls="text-[11px] hidden sm:inline")("for newline"),
                         ),
-                        Div(cls="flex items-center gap-2")(
+                        Div(cls="flex items-center gap-2 flex-shrink-0")(
                             Button(
                                 type="submit",
-                                cls="uk-button uk-button-primary uk-button-sm rounded-xl px-4 py-1 flex items-center gap-1.5 font-medium shadow-sm hover:shadow cursor-pointer",
+                                cls="uk-button uk-button-primary uk-button-sm rounded-xl px-4 py-1 inline-flex items-center justify-center w-auto flex-shrink-0 gap-1.5 font-medium shadow-sm hover:shadow cursor-pointer",
                             )(
                                 Span("Ask"),
                                 Span(cls="text-xs font-bold")("→"),

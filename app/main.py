@@ -602,6 +602,17 @@ async def post_edit_message(
                     hx_target="#chat-history",
                     hx_swap="beforeend",
                     hx_include="#doc-type-filter, #sprint-filter, #active-chat-id-input",
+                    hx_on__after_request="""
+                        const qInput = document.getElementById('query-input');
+                        if (qInput) {
+                            qInput.value = '';
+                            qInput.style.height = '44px';
+                        }
+                        const mainArea = document.getElementById('chat-main-area');
+                        if (mainArea) {
+                            mainArea.scrollTop = mainArea.scrollHeight;
+                        }
+                    """,
                     cls="w-full bg-base-100 border border-base-300 rounded-2xl shadow-md p-2.5 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-all",
                 )(
                     Input(type="hidden", id="active-chat-id-input", name="chat_id", value=chat_id),
@@ -612,20 +623,33 @@ async def post_edit_message(
                             required=True,
                             rows=1,
                             placeholder="Ask a technical question about your code, boards, or wiki... (Enter to send, Shift+Enter for newline)",
+                            onkeydown="""
+                                if (event.key === 'Enter' && !event.shiftKey) {
+                                    event.preventDefault();
+                                    if (this.value.trim().length > 0) {
+                                        htmx.trigger(this.closest('form'), 'submit');
+                                    }
+                                }
+                            """,
+                            oninput="this.style.height = 'auto'; this.style.height = Math.min(this.scrollHeight, 160) + 'px';",
                             cls="w-full bg-transparent border-0 focus:outline-none focus:ring-0 text-sm text-base-content placeholder:text-base-content/50 resize-none py-1.5 px-2.5 leading-normal min-h-[44px] max-h-[160px]",
                         ),
                         Div(cls="flex items-center justify-between pt-1.5 border-t border-base-200 text-xs text-base-content/60")(
                             Div(cls="flex items-center gap-1.5")(
                                 Span(cls="text-[11px] hidden sm:inline")("Press"),
                                 Span(cls="px-1.5 py-0.5 bg-base-200 border border-base-300 rounded text-[10px] font-mono text-base-content/80")("Enter ↵"),
-                                Span(cls="text-[11px] hidden sm:inline")("to send"),
+                                Span(cls="text-[11px] hidden sm:inline")("to send,"),
+                                Span(cls="px-1.5 py-0.5 bg-base-200 border border-base-300 rounded text-[10px] font-mono text-base-content/80")("Shift + Enter"),
+                                Span(cls="text-[11px] hidden sm:inline")("for newline"),
                             ),
-                            Button(
-                                type="submit",
-                                cls="uk-button uk-button-primary uk-button-sm rounded-xl px-4 py-1 flex items-center gap-1.5 font-medium shadow-sm hover:shadow cursor-pointer",
-                            )(
-                                Span("Ask"),
-                                Span(cls="text-xs font-bold")("→"),
+                            Div(cls="flex items-center gap-2 flex-shrink-0")(
+                                Button(
+                                    type="submit",
+                                    cls="uk-button uk-button-primary uk-button-sm rounded-xl px-4 py-1 inline-flex items-center justify-center w-auto flex-shrink-0 gap-1.5 font-medium shadow-sm hover:shadow cursor-pointer",
+                                )(
+                                    Span("Ask"),
+                                    Span(cls="text-xs font-bold")("→"),
+                                ),
                             ),
                         ),
                     ),
