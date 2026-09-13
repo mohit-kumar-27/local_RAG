@@ -297,6 +297,42 @@ class TestChatHistory(unittest.TestCase):
         self.assertIn("function initChatSidebarState()", resp.text)
         self.assertIn("chat_sidebar_collapsed", resp.text)
 
+    def test_post_edit_user_message_multi_turn(self):
+        """Verifies editing a user message in multi-turn chat renders ChatMessageTurn without NameError."""
+        import uuid
+        from starlette.testclient import TestClient
+        from app.main import app, store
+
+        client = TestClient(app)
+        unique_id = f"chat-turn-{uuid.uuid4().hex[:6]}"
+        chat = store.create_chat(unique_id, "Edit Turn Test")
+
+        # Turn 1: user + assistant
+        u1_id = f"u1-{uuid.uuid4().hex[:4]}"
+        a1_id = f"a1-{uuid.uuid4().hex[:4]}"
+        store.add_chat_message(u1_id, chat.id, "user", "Question 1")
+        store.add_chat_message(a1_id, chat.id, "assistant", "Answer 1")
+
+        # Turn 2: user + assistant
+        u2_id = f"u2-{uuid.uuid4().hex[:4]}"
+        a2_id = f"a2-{uuid.uuid4().hex[:4]}"
+        store.add_chat_message(u2_id, chat.id, "user", "Question 2")
+        store.add_chat_message(a2_id, chat.id, "assistant", "Answer 2")
+
+        # Edit Turn 2 user message - tests ChatMessageTurn rendering of Turn 1
+        resp = client.post(
+            f"/api/chats/{chat.id}/messages/{u2_id}/edit",
+            data={"new_content": "Edited Question 2", "doc_type_filter": "all"},
+            headers={"HX-Request": "true"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(f'id="turn-{u1_id}"', resp.text)
+        self.assertIn("Question 1", resp.text)
+        self.assertIn("Answer 1", resp.text)
+        self.assertIn(f'id="turn-{u2_id}"', resp.text)
+        self.assertIn("Edited Question 2", resp.text)
+        self.assertIn("sse-connect=", resp.text)
+
 
 if __name__ == "__main__":
     unittest.main()

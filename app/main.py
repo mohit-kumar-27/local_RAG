@@ -24,7 +24,7 @@ from starlette.responses import Response, StreamingResponse
 import config
 from app.background import create_job, execute_ingestion, get_job, get_active_ingestion_job
 from app.ui_components import (
-    AppHeader, AssistantMessageBubble, ChatMainArea, ChatSidebar, ChatTab, CitationDrawer, CollectionStatsCard,
+    AppHeader, AssistantMessageBubble, ChatMainArea, ChatMessageTurn, ChatSidebar, ChatTab, CitationDrawer, CollectionStatsCard,
     EditAssistantMessageForm, EditMessageForm, IngestProgressSSEComponent, IngestProgressUpdateCard, IngestionTab,
     TabNavigation, UserMessageBubble, deserialize_citations, format_inline_citations, serialize_citations
 )
